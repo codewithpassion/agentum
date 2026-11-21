@@ -239,7 +239,7 @@ export const deskCardOf = (card: RailCard): DeskCard => ({
   id: card.id,
   kind: deskKindOf(card.kind),
   lane: "needs_you",
-  startedBy: card.passedOnBy ?? card.proposedBy ?? card.agentName,
+  startedBy: card.proposedBy ?? card.passedOnBy ?? card.agentName,
   title: card.title,
   ...(card.kind === "problem" ? {} : { needsYouKind: card.kind }),
   ...(card.runId === null ? {} : { runId: card.runId }),
