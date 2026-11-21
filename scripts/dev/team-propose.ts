@@ -10,6 +10,7 @@
 // `bun scripts/dev/team-propose.ts --server http://localhost:3417 --lead <slug>
 //   --agent <memberAgentId> --field instructions --value "..." --reason "..."`.
 import { readFileSync } from "node:fs";
+import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import { importRunTokenKey, signRunToken } from "@repo/services/run-tokens";
 import {
@@ -22,6 +23,10 @@ import {
 } from "./local.ts";
 
 const LEASE_MS = 60_000;
+// The dev server finishes work after it answers (a Slack card, a wake). A write
+// from this script during that work makes the server's query fail with
+// "database is locked", so the run is put back only after this pause.
+const RESTORE_DELAY_MS = 8000;
 const KEY_LINE = /^RUN_TOKEN_KEY=(.+)$/m;
 
 interface RunRow {
@@ -109,6 +114,7 @@ const main = async (): Promise<void> => {
       });
       process.stdout.write(`${response.status} ${await response.text()}\n`);
     } finally {
+      await sleep(RESTORE_DELAY_MS);
       sqlite
         .query("UPDATE runs SET status = ?, lease_until = NULL WHERE id = ?")
         .run(run.status, run.id);
