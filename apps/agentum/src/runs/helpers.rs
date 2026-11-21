@@ -19,6 +19,16 @@ pub fn effort(config: &Value) -> Option<&'static str> {
         _ => None,
     }
 }
+/// Tokens a run may fill before Claude Code compacts, from the agent's
+/// `contextBudget`. Mirrors `CONTEXT_BUDGET_COMPACTION_TOKENS` in packages/db.
+pub fn context_tokens(config: &Value) -> Option<u64> {
+    match config["contextBudget"].as_str()? {
+        "small" => Some(100_000),
+        "standard" => Some(200_000),
+        "large" => Some(500_000),
+        _ => None,
+    }
+}
 pub fn stop_message(stop: &Value) -> String {
     if stop["kind"] == "turn_limit" {
         format!("Stopped after {} turns, the agent's limit", stop["limit"])
