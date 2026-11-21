@@ -44,6 +44,10 @@ import {
   createTeamDiaryPoster,
   type TeamDiaryPostResult,
 } from "./dream/team/diary-post.ts";
+import {
+  createHandOffRetrier,
+  type HandOffRetryResult,
+} from "./dream/team/hand-off-retry.ts";
 import { createTeamDreamRunner } from "./dream/team/run.ts";
 import { loadTeamRecord } from "./dream/team/team.ts";
 import { createTeamUndo } from "./dream/team/undo.ts";
@@ -115,7 +119,7 @@ export interface DreamDeps {
   /** The same fetch the agent builder calls Anthropic with. */
   fetch: Fetcher;
   /** The team diary (at its 08:00 slot) and the hand-off requests are posted in the team room through this. */
-  inbox: Pick<InboxService, "postNotice">;
+  inbox: Pick<InboxService, "postNotice" | "retryNoticeWake">;
   library: DreamMemoryLibrary;
   managedKeys: Pick<ManagedKeysService, "resolve">;
   /** A person's answer to a question forgets the notes it did not keep, as that person. */
@@ -163,6 +167,11 @@ export const createDreamService = (deps: DreamDeps) => {
   const teamUndoer = createTeamUndo(deps);
   const teamAnswerer = createTeamAnswer(deps);
   const diaryPoster = createTeamDiaryPoster({
+    clock,
+    db,
+    inbox: deps.inbox,
+  });
+  const handOffRetrier = createHandOffRetrier({
     clock,
     db,
     inbox: deps.inbox,
@@ -680,6 +689,16 @@ export const createDreamService = (deps: DreamDeps) => {
     return await diaryPoster.postDue();
   };
 
+  /** The minute tick's retry job: wakes a team lead for a hand-off request whose first wake was refused. */
+  const retryHandOffWakes = async (
+    principal: Principal
+  ): Promise<HandOffRetryResult> => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError(DREAM_FIRE);
+    }
+    return await handOffRetrier.retry();
+  };
+
   /** The minute tick's repair job: every active agent whose schedule is not off has its dream trigger. */
   const syncTriggers = async (principal: Principal): Promise<number> => {
     if (principal.kind !== "system") {
@@ -697,6 +716,7 @@ export const createDreamService = (deps: DreamDeps) => {
     get,
     list,
     postTeamDiaries,
+    retryHandOffWakes,
     runNow,
     runTeamNow,
     syncTriggers,

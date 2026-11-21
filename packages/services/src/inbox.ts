@@ -33,6 +33,7 @@ import {
   desc,
   eq,
   gt,
+  gte,
   inArray,
   isNull,
   lt,
@@ -1291,6 +1292,55 @@ export const createInboxService = ({
   };
 
   /**
+   * Wakes the agent again for a notice the system posted earlier, when the
+   * first wake was refused: only when the agent has no run in the thread since
+   * the post and its wake budget allows one. A budget still spent records
+   * nothing, so a tick can ask every minute.
+   */
+  const retryNoticeWake = async (
+    principal: Principal,
+    postId: string,
+    wakeTarget: { agentId: string; asUserId: string }
+  ): Promise<WokenRun[]> => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError(NOTICE_ACTION);
+    }
+    const [entry] = await db
+      .select()
+      .from(inboxPosts)
+      .where(eq(inboxPosts.id, postId))
+      .limit(1);
+    if (!entry) {
+      return [];
+    }
+    const thread = await findThread(entry.threadId, entry.workspaceId);
+    if (!thread || (await teamArchived(thread))) {
+      return [];
+    }
+    const [answered] = await db
+      .select({ id: runRows.id })
+      .from(runRows)
+      .innerJoin(sessions, eq(runRows.sessionId, sessions.id))
+      .where(
+        and(
+          eq(runRows.workspaceId, thread.workspaceId),
+          eq(runRows.agentId, wakeTarget.agentId),
+          eq(sessions.origin, "inbox"),
+          eq(sessions.externalKey, thread.id),
+          gte(runRows.createdAt, entry.createdAt)
+        )
+      )
+      .limit(1);
+    if (
+      answered ||
+      (await budgetSpent(wakeTarget.agentId, thread.workspaceId))
+    ) {
+      return [];
+    }
+    return await wakeNoticeAgent(thread, entry, wakeTarget);
+  };
+
+  /**
    * A person (or a run, for the `inbox_post` tool) posts to a thread. The
    * result lists the runs its mentions started.
    */
@@ -1468,6 +1518,7 @@ export const createInboxService = ({
     postExternal,
     postNotice,
     readThread,
+    retryNoticeWake,
     startDiscussion,
     stopDiscussion,
     sweepDiscussions,
