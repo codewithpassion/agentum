@@ -6,7 +6,7 @@ import type { Database } from "@repo/db";
 import { inboxPosts, inboxThreads } from "@repo/db/schema/inbox";
 import { teams } from "@repo/db/schema/teams";
 import { and, asc, eq, gte, isNotNull, isNull, like } from "drizzle-orm";
-import type { InboxService } from "../../inbox.ts";
+import { type InboxService, SYSTEM_AUTHOR_ID } from "../../inbox.ts";
 import type { Clock } from "../../runs/types.ts";
 import { HAND_OFF_HEADING, TEAM_DIARY_TOPIC } from "./collect.ts";
 
@@ -43,6 +43,8 @@ export const createHandOffRetrier = (deps: HandOffRetryDeps) => {
       .where(
         and(
           eq(inboxThreads.title, TEAM_DIARY_TOPIC),
+          eq(inboxPosts.authorId, SYSTEM_AUTHOR_ID),
+          eq(inboxPosts.authorKind, "user"),
           like(inboxPosts.text, `${HAND_OFF_HEADING}%`),
           gte(inboxPosts.createdAt, since.toISOString()),
           isNull(teams.archivedAt),
