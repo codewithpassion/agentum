@@ -3,7 +3,7 @@ import {
   EVERYONE_TEAM_SLUG,
   type Team,
 } from "@repo/db/shared";
-import type { InboxPost, InboxThread } from "#/integrations/trpc/types.ts";
+import type { InboxPost } from "#/integrations/trpc/types.ts";
 import { mentionedMembers } from "./mention-logic.ts";
 import {
   memberKey,
@@ -46,18 +46,8 @@ export const roomForInboxLink = (
 ): string | null =>
   threadTeamId ?? teams.find((team) => isEveryone(team))?.id ?? null;
 
-export const topicsOfTeam = (
-  threads: readonly InboxThread[],
-  team: Pick<Team, "id" | "slug">
-): InboxThread[] => {
-  const everyone = isEveryone(team);
-  return threads.filter(
-    (thread) =>
-      thread.teamId === team.id || (everyone && thread.teamId === null)
-  );
-};
-
-export const canPostInRoom = (
+/** True when the person is in the team. An archived team keeps its members. */
+export const isRoomMember = (
   team: Pick<Team, "members" | "slug">,
   userId: string
 ): boolean => {
@@ -68,6 +58,12 @@ export const canPostInRoom = (
     (row) => row.memberKind === "user" && row.memberId === userId
   );
 };
+
+/** An archived team's room is read-only, whoever is in it. */
+export const canPostInRoom = (
+  team: Pick<Team, "archivedAt" | "members" | "slug">,
+  userId: string
+): boolean => team.archivedAt === null && isRoomMember(team, userId);
 
 export const roomDirectory = (input: {
   agents: readonly RoomAgentInput[];

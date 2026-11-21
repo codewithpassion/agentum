@@ -289,6 +289,8 @@ export interface MachineClaim {
     runtimeMachineId: string | null;
     runtimeRef: string | null;
   };
+  /** Set for a lead's run in its team room, the client then starts Claude Code with only read tools and the Agentum MCP server. */
+  teamRoom?: true;
   toolRules?: string[];
 }
 
@@ -338,7 +340,11 @@ export interface RuntimeAdapter {
    * as one of its runs ends. Only the cloud runtime sets it, to true.
    */
   offerNextOnEnd?: boolean;
-  resume?: (run: RunRecord, request: RequestRecord) => Promise<void>;
+  resume?: (
+    run: RunRecord,
+    request: RequestRecord,
+    deps: AdapterDeps
+  ) => Promise<void>;
 }
 
 /** The trusted context `completeRun` gives a gateway. Never read from a post body. */

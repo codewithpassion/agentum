@@ -34,8 +34,10 @@ import {
   eq,
   gt,
   inArray,
+  isNull,
   lt,
   notExists,
+  or,
   sql,
 } from "drizzle-orm";
 import { monotonicFactory } from "ulidx";
@@ -113,6 +115,12 @@ export const threadCreateInputSchema = z.strictObject({
 export type ThreadCreateInput = z.input<typeof threadCreateInputSchema>;
 
 export const threadReadInputSchema = z.strictObject({ threadId: idString });
+
+/** `teamId` lists one team room's topics, filtered before the limit. Without it the list is the whole workspace's, for the desk. */
+export const threadListInputSchema = z
+  .strictObject({ teamId: idString.optional() })
+  .optional();
+export type ThreadListInput = z.input<typeof threadListInputSchema>;
 
 export const clearAttentionInputSchema = z.strictObject({
   threadId: idString,
@@ -330,16 +338,35 @@ export const createInboxService = ({
     return row ?? null;
   };
 
+  /** True when the thread's team is archived: its room is read-only. */
+  const teamArchived = async (thread: ThreadRow): Promise<boolean> => {
+    if (thread.teamId === null) {
+      return false;
+    }
+    const [team] = await db
+      .select({ archivedAt: teams.archivedAt })
+      .from(teams)
+      .where(
+        and(
+          eq(teams.id, thread.teamId),
+          eq(teams.workspaceId, thread.workspaceId)
+        )
+      );
+    return team !== undefined && team.archivedAt !== null;
+  };
+
   /**
    * The thread when `member` may use it. A limited topic the member is not in
    * answers not found, so its existence stays hidden. Posting also needs
-   * membership in the topic's team.
+   * membership in the topic's team, and a team that is not archived. "tend"
+   * needs the membership but allows an archived team: dismissing a thread and
+   * stopping a discussion still work there.
    */
   const requireThread = async (
     member: Member,
     threadId: string,
     action: string,
-    access: "post" | "read"
+    access: "post" | "read" | "tend"
   ): Promise<ThreadRow> => {
     authorize(member, action, {
       id: threadId,
@@ -351,7 +378,10 @@ export const createInboxService = ({
     if (!(thread && (await canReadTopic(db, thread, roomer)))) {
       throw new ServiceError("not_found", "Thread not found");
     }
-    if (access === "post" && !(await canPostInTopic(db, thread, roomer))) {
+    if (access !== "read" && !(await canPostInTopic(db, thread, roomer))) {
+      throw new ForbiddenError(action);
+    }
+    if (access === "post" && (await teamArchived(thread))) {
       throw new ForbiddenError(action);
     }
     return thread;
@@ -538,19 +568,48 @@ export const createInboxService = ({
     return toThread(row);
   };
 
-  const listThreads = async (principal: Principal): Promise<ThreadRecord[]> => {
+  /**
+   * The team filter runs in SQL so the limit counts only that room's topics.
+   * Everyone also lists the topics from before teams, which have no team.
+   */
+  const inTeam = async (workspaceId: string, teamId: string) => {
+    const [team] = await db
+      .select({ slug: teams.slug })
+      .from(teams)
+      .where(and(eq(teams.workspaceId, workspaceId), eq(teams.id, teamId)));
+    if (!team) {
+      return null;
+    }
+    return team.slug === EVERYONE_TEAM_SLUG
+      ? or(eq(inboxThreads.teamId, teamId), isNull(inboxThreads.teamId))
+      : eq(inboxThreads.teamId, teamId);
+  };
+
+  const listThreads = async (
+    principal: Principal,
+    rawInput?: ThreadListInput
+  ): Promise<ThreadRecord[]> => {
+    const input = threadListInputSchema.parse(rawInput);
     const member = requireMember(principal, READ_ACTION);
     authorize(member, READ_ACTION, {
       kind: INBOX_KIND,
       workspaceId: member.workspaceId,
     });
+    const room =
+      input?.teamId === undefined
+        ? undefined
+        : await inTeam(member.workspaceId, input.teamId);
+    if (room === null) {
+      return [];
+    }
     const rows = await db
       .select()
       .from(inboxThreads)
       .where(
         and(
           eq(inboxThreads.workspaceId, member.workspaceId),
-          topicVisibleTo(roomerOf(member))
+          topicVisibleTo(roomerOf(member)),
+          room
         )
       )
       .orderBy(desc(inboxThreads.lastPostAt), desc(inboxThreads.id))
@@ -620,7 +679,7 @@ export const createInboxService = ({
     if (writer.kind !== "user") {
       throw new ForbiddenError(POST_ACTION);
     }
-    const thread = await requireThread(writer, threadId, POST_ACTION, "post");
+    const thread = await requireThread(writer, threadId, POST_ACTION, "tend");
     const cleared: Pick<
       ThreadRow,
       "attentionClearedAt" | "attentionClearedBy"
@@ -894,11 +953,12 @@ export const createInboxService = ({
           eq(teams.workspaceId, thread.workspaceId)
         )
       );
-    if (!team) {
+    // An archived team's room has no rules and no lead.
+    if (!team || team.archivedAt !== null) {
       return { leadAgentId: null, leadListens: false, rules: "" };
     }
     return {
-      leadAgentId: team.archivedAt === null ? team.leadAgentId : null,
+      leadAgentId: team.leadAgentId,
       leadListens: team.leadListens,
       rules: team.rules,
     };
@@ -958,6 +1018,18 @@ export const createInboxService = ({
     streak: boolean,
     requestId?: string
   ): Promise<WokenRun | null> => {
+    // Discussion rounds start runs through here too, so an archive stops them.
+    if (await teamArchived(thread)) {
+      await recordStop(
+        waker,
+        thread,
+        entry,
+        target.id,
+        "refused",
+        "The team is archived"
+      );
+      return null;
+    }
     let stop: StopReason | null = null;
     if (streak) {
       stop = "streak";
@@ -1009,6 +1081,29 @@ export const createInboxService = ({
   };
 
   /**
+   * The room and the agents a post wakes: the ones it mentions, or the
+   * listening lead for a person's post that names no one. Null when nobody is
+   * woken. An archived team's room wakes nobody, so a reply that was already
+   * running lands and starts no run.
+   */
+  const wakeTargets = async (
+    thread: ThreadRow,
+    entry: PostRow
+  ): Promise<{ room: Room; targets: { id: string }[] } | null> => {
+    if (await teamArchived(thread)) {
+      return null;
+    }
+    const room = await roomOf(thread);
+    const mentioned = await mentionedAgents(entry, thread.workspaceId);
+    const listening =
+      mentioned.length === 0 && entry.authorKind === "user"
+        ? await listeningLead(thread, room)
+        : null;
+    const targets = listening ? [listening] : mentioned;
+    return targets.length === 0 ? null : { room, targets };
+  };
+
+  /**
    * Starts a run for each agent the post mentions, as `waker`: the person for
    * their own post, the run principal for an agent's reply. Runs go one after
    * another because a run can finish, and post, inside `startRun`.
@@ -1027,16 +1122,11 @@ export const createInboxService = ({
         return [];
       }
     }
-    const room = await roomOf(thread);
-    const mentioned = await mentionedAgents(entry, thread.workspaceId);
-    const listening =
-      mentioned.length === 0 && entry.authorKind === "user"
-        ? await listeningLead(thread, room)
-        : null;
-    const targets = listening ? [listening] : mentioned;
-    if (targets.length === 0) {
+    const found = await wakeTargets(thread, entry);
+    if (found === null) {
       return [];
     }
+    const { room, targets } = found;
     const streak = await streakReached(thread.id);
     const started: WokenRun[] = [];
     for (const target of targets) {
@@ -1252,6 +1342,18 @@ export const createInboxService = ({
   const postExternal = async (
     input: ExternalPostInput
   ): Promise<ExternalPostResult> => {
+    const [team] = await db
+      .select({ archivedAt: teams.archivedAt })
+      .from(teams)
+      .where(
+        and(
+          eq(teams.id, input.teamId),
+          eq(teams.workspaceId, input.workspaceId)
+        )
+      );
+    if (!team || team.archivedAt !== null) {
+      throw new ServiceError("not_found", "Team not found");
+    }
     const created = clock.now().toISOString();
     const statements: Statement[] = [];
     let thread: ThreadRow;

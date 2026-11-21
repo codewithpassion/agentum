@@ -4,13 +4,13 @@ import { useAssistantLocation } from "#/components/assistant/assistant-location"
 import { useOpenMainThread } from "#/components/conversations/use-main-thread";
 import {
   Command,
-  CommandDialog,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
 } from "#/components/ui/command";
+import { FindCommandDialog } from "./find-command-dialog.tsx";
 import {
   agentFindEntries,
   type FindEntry,
@@ -76,7 +76,7 @@ export function FindDialog({
     [agents, go, onOpenChange, openAssistant, openMainThread]
   );
   return (
-    <CommandDialog
+    <FindCommandDialog
       description="Find an agent, a team, a page or a setting"
       onOpenChange={onOpenChange}
       open={open}
@@ -124,6 +124,6 @@ export function FindDialog({
           ))}
         </CommandList>
       </Command>
-    </CommandDialog>
+    </FindCommandDialog>
   );
 }

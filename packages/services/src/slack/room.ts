@@ -10,8 +10,12 @@
  * opens a topic titled from its first line. A person who is linked to an
  * Agentum account and is in the team posts as that person, and their post wakes
  * agents through the room (`@slug` for an app they mention, else the lead when
- * the team's `lead_listens` is on). Anyone else posts as a named guest, and a
- * guest's post wakes nobody.
+ * the team's `lead_listens` is on). A person with no link yet is matched by
+ * their Slack email, as in a DM, and linked on a match, but only when they
+ * belong to the app's own Slack team (a Slack Connect user's email is not
+ * ours to trust). Anyone else posts as a named guest, and a guest's post wakes
+ * nobody. A guest with no match is told once, privately in the thread, how to
+ * get linked.
  *
  * Only the team's own apps feed its room: a copy is dropped unless the app
  * belongs to an active agent that is a member of the linked team (the lead is
@@ -26,16 +30,19 @@
  * anyone, would close it.
  */
 import type { Database } from "@repo/db";
+import { events as eventRows } from "@repo/db/schema/events";
 import { slackRoomMessages } from "@repo/db/schema/slack";
+import { and, eq, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { isUniqueViolation } from "../errors.ts";
+import type { EventsService } from "../events.ts";
 import { isInTeam } from "../inbox/room-access.ts";
 import type {
   ExternalPostInput,
   ExternalPostResult,
   InboxService,
 } from "../inbox.ts";
-import { INPUT_TEXT_MAX } from "../runs/types.ts";
+import { type Clock, INPUT_TEXT_MAX } from "../runs/types.ts";
 import {
   createSecretReader,
   type SecretReader,
@@ -43,6 +50,7 @@ import {
 } from "./apps.ts";
 import { createSlackClient, type SlackFetch } from "./client.ts";
 import type { SlackEvent } from "./event-parse.ts";
+import { withRetry } from "./post.ts";
 import { memberSenderApps } from "./room-out-store.ts";
 import {
   findRoomLink,
@@ -57,6 +65,11 @@ import {
   slackMentionedUserIds,
   topicTitle,
 } from "./room-text.ts";
+import {
+  HIDDEN_EMAIL_REPLY,
+  type SenderMatch,
+  UNLINKED_REPLY,
+} from "./sender-match.ts";
 
 type Message = Extract<SlackEvent, { kind: "message" }>;
 
@@ -68,6 +81,9 @@ export interface RoomIntake {
 
 const accepted: RoomIntake = { kind: "accepted" };
 
+/** Why a Slack user is a guest, when there is something to tell them about it. */
+type GuestReason = "hidden_email" | "no_account" | null;
+
 /** The stored author id of a Slack user who has no Agentum account in the team. */
 export const guestAuthorId = (slackTeamId: string, userId: string): string =>
   `slack:${slackTeamId}:${userId}`;
@@ -75,13 +91,17 @@ export const guestAuthorId = (slackTeamId: string, userId: string): string =>
 export const createRoomIntake = ({
   clock,
   db,
+  events,
   fetch: slackFetch,
   findLink,
   inbox,
+  matchSender,
   secretsKey,
 }: {
-  clock: { now: () => Date };
+  clock: Clock;
   db: Database;
+  /** Remembers who was told how to get linked. */
+  events: Pick<EventsService, "insertStatement">;
   fetch: SlackFetch;
   /** The Agentum account a Slack user is linked to in the app's Slack workspace. */
   findLink: (
@@ -89,6 +109,12 @@ export const createRoomIntake = ({
     slackUserId: string
   ) => Promise<{ clerkUserId: string } | null>;
   inbox: Pick<InboxService, "postExternal">;
+  /**
+   * Matches a Slack user with no link to an Agentum account by their Slack
+   * email, and writes the link on a match. Only for users of the app's own
+   * Slack team.
+   */
+  matchSender: (app: SlackAppRow, slackUserId: string) => Promise<SenderMatch>;
   secretsKey?: string;
 }) => {
   const secrets: SecretReader = createSecretReader(secretsKey);
@@ -115,6 +141,30 @@ export const createRoomIntake = ({
   };
 
   /**
+   * The linked account of the Slack user: the one they already have, else the
+   * one their Slack email matches. `reason` says why they have none, for the
+   * guest to be told. Every member app runs this for its copy of a message,
+   * and the link insert is a no-op for all but the first.
+   */
+  const accountOf = async (
+    app: SlackAppRow,
+    userId: string
+  ): Promise<{ clerkUserId: string | null; reason: GuestReason }> => {
+    const link = await findLink(app, userId);
+    if (link) {
+      return { clerkUserId: link.clerkUserId, reason: null };
+    }
+    const match = await matchSender(app, userId);
+    if (match.kind === "linked") {
+      return { clerkUserId: match.clerkUserId, reason: null };
+    }
+    return {
+      clerkUserId: null,
+      reason: match.kind === "none" ? match.reason : null,
+    };
+  };
+
+  /**
    * The person the message is from: the linked account when it is in the
    * team, else a guest named after their Slack profile.
    */
@@ -123,29 +173,87 @@ export const createRoomIntake = ({
     message: Message,
     teamId: string
   ): Promise<
-    { id: string; person: true } | { id: string; name: string; person: false }
+    | { id: string; person: true }
+    | { id: string; name: string; person: false; reason: GuestReason }
   > => {
-    const link = await findLink(app, message.userId);
+    const { clerkUserId, reason } = await accountOf(app, message.userId);
     if (
-      link &&
-      (await isInTeam(db, teamId, { id: link.clerkUserId, kind: "user" }))
+      clerkUserId &&
+      (await isInTeam(db, teamId, { id: clerkUserId, kind: "user" }))
     ) {
-      return { id: link.clerkUserId, person: true };
+      return { id: clerkUserId, person: true };
     }
     return {
       id: guestAuthorId(app.teamId, message.userId),
       name: (await slackName(app, message.userId)) ?? "",
       person: false,
+      reason,
     };
+  };
+
+  /** True when a `slack.unlinked_sender` event already names this Slack user. */
+  const wasTold = async (
+    app: SlackAppRow,
+    slackUserId: string
+  ): Promise<boolean> => {
+    const [told] = await db
+      .select({ id: eventRows.id })
+      .from(eventRows)
+      .where(
+        and(
+          eq(eventRows.workspaceId, app.workspaceId),
+          eq(eventRows.type, "slack.unlinked_sender"),
+          sql`json_extract(${eventRows.payload}, '$.slackUserId') = ${slackUserId}`
+        )
+      )
+      .limit(1);
+    return told !== undefined;
+  };
+
+  /** The event that records a guest was told how to get linked, written with the post that tells them. */
+  const toldStatement = (app: SlackAppRow, message: Message) =>
+    events.insertStatement({
+      actor: { id: "slack", kind: "system" },
+      agentId: app.agentId,
+      payload: {
+        channel: message.channelId,
+        slackUserId: message.userId,
+        ts: message.ts,
+      },
+      type: "slack.unlinked_sender",
+      workspaceId: app.workspaceId,
+    });
+
+  /** Tells a guest, in the thread and visible to them alone, how to get linked. */
+  const tellGuest = async (
+    app: SlackAppRow,
+    message: Message,
+    reason: Exclude<GuestReason, null>
+  ) => {
+    const token = await secrets.botToken(app);
+    if (!token) {
+      return;
+    }
+    const client = createSlackClient({ fetch: slackFetch, token });
+    await withRetry(clock, () =>
+      client.postEphemeral({
+        channel: message.channelId,
+        text: reason === "hidden_email" ? HIDDEN_EMAIL_REPLY : UNLINKED_REPLY,
+        threadTs: message.threadTs ?? message.ts,
+        user: message.userId,
+      })
+    );
   };
 
   const pairing = (
     app: SlackAppRow,
     message: Message,
-    isReply: boolean
+    isReply: boolean,
+    told: boolean
   ): ExternalPostInput["alongside"] => {
     const createdAt = clock.now().toISOString();
     return ({ postId }) => [
+      ...(told ? [toldStatement(app, message)] : []),
       db.insert(slackRoomMessages).values({
         channelId: message.channelId,
         createdAt,
@@ -222,7 +330,7 @@ export const createRoomIntake = ({
     app: SlackAppRow,
     message: Message,
     teamId: string
-  ): Promise<ExternalPostResult> => {
+  ): Promise<ExternalPostResult & { guestReason: GuestReason }> => {
     const roomAgents = await roomAgentsByBotUser(db, {
       botUserIds: slackMentionedUserIds(message.text),
       slackTeamId: app.teamId,
@@ -235,8 +343,16 @@ export const createRoomIntake = ({
     const isReply =
       message.threadTs !== undefined && message.threadTs !== message.ts;
     const from = await author(app, message, teamId);
-    return await inbox.postExternal({
-      alongside: pairing(app, message, isReply),
+    // A guest is told once, ever: the event that says so rides in the write of
+    // the post that wins, so no later message finds them untold.
+    const guestReason =
+      !from.person &&
+      from.reason !== null &&
+      !(await wasTold(app, message.userId))
+        ? from.reason
+        : null;
+    const posted = await inbox.postExternal({
+      alongside: pairing(app, message, isReply, guestReason !== null),
       authorId: from.id,
       teamId,
       text: from.person ? text : guestPostText(from.name, text),
@@ -251,6 +367,7 @@ export const createRoomIntake = ({
         : null,
       workspaceId: app.workspaceId,
     });
+    return { ...posted, guestReason };
   };
 
   /**
@@ -283,6 +400,13 @@ export const createRoomIntake = ({
             await posted.wake();
           } catch (error) {
             console.error("Slack room wake failed", error);
+          }
+          if (posted.guestReason) {
+            try {
+              await tellGuest(app, message, posted.guestReason);
+            } catch (error) {
+              console.error("Slack guest reply failed", error);
+            }
           }
         },
         kind: "accepted",

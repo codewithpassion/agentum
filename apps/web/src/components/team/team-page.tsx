@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useState } from "react";
 import { getTrpc } from "#/integrations/trpc/client";
 import { errorMessage } from "#/lib/error-message";
 import { FolderLink } from "./folder-link.tsx";
+import { LeadListensSwitch } from "./lead-listens-switch.tsx";
 import { LeadPicker } from "./lead-picker.tsx";
 import { MemberList } from "./member-list.tsx";
 import { NewTeamButton } from "./new-team-button.tsx";
@@ -93,6 +94,13 @@ function useTeamChanges(teamId: string) {
     },
     [router, teamId]
   );
+  const setLeadListens = useCallback(
+    async (leadListens: boolean) => {
+      await getTrpc().teams.update.mutate({ leadListens, teamId });
+      await router.invalidate();
+    },
+    [router, teamId]
+  );
   const setRules = useCallback(
     async (rules: string) => {
       await getTrpc().teams.setRules.mutate({ rules, teamId });
@@ -113,6 +121,7 @@ function useTeamChanges(teamId: string) {
     error,
     removeMember,
     setLead,
+    setLeadListens,
     setProfile,
     setRules,
   };
@@ -200,6 +209,12 @@ export function TeamPage({
               leadId={team.leadAgentId}
               onChange={changes.setLead}
             />
+            {canEdit ? (
+              <LeadListensSwitch
+                checked={team.leadListens}
+                onChange={changes.setLeadListens}
+              />
+            ) : null}
           </TeamSection>
           <TeamSection
             description="Link the team's room to one Slack channel."

@@ -1,10 +1,12 @@
 import { useUser } from "@clerk/tanstack-react-start";
 import type { Question } from "@repo/protocol/requests";
+import type { ProposalInput } from "@repo/services/teams/proposal";
 import { Link } from "@tanstack/react-router";
 import {
   type ChangeEvent,
   type KeyboardEvent,
   useCallback,
+  useEffect,
   useId,
   useState,
 } from "react";
@@ -23,10 +25,12 @@ import {
   a2aSendFields,
   approvalAnswer,
   canSubmitAnswers,
+  currentProposalValue,
   expiryText,
   type MailApprovalFields,
   mailApprovalFields,
   offersAlwaysAllow,
+  PROPOSAL_FIELD_LABELS,
   pickQuestion,
   type QuestionInputs,
   questionAnswer,
@@ -34,6 +38,7 @@ import {
   type Settled,
   settledLine,
   taskSettlement,
+  teamProposalFields,
   typeQuestion,
 } from "./request-card-logic.ts";
 
@@ -343,6 +348,135 @@ function A2aFields({ send }: { send: A2aSendFields }) {
   );
 }
 
+/** The member's current value of the proposed field, or null while it loads or when it can't be read. */
+function useCurrentValue(proposal: ProposalInput): string | null {
+  const [current, setCurrent] = useState<string | null>(null);
+  const { agentId, field } = proposal;
+  useEffect(() => {
+    let live = true;
+    getTrpc()
+      .agents.get.query({ id: agentId })
+      .then((agent) => {
+        if (live) {
+          setCurrent(currentProposalValue(agent, field));
+        }
+      })
+      .catch(() => {
+        // The card still reads without the old value.
+      });
+    return () => {
+      live = false;
+    };
+  }, [agentId, field]);
+  return current;
+}
+
+function ProposalValue({ label, text }: { label: string; text: string }) {
+  const shown = text === "" ? "(empty)" : text;
+  return (
+    <>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd>
+        <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-sans">
+          {shown}
+        </pre>
+      </dd>
+    </>
+  );
+}
+
+/** A lead's proposed change to a member, read in full. Approving applies it, rejecting leaves the member alone. */
+export function ProposalCard({
+  view,
+  nowMs,
+  onAnswer,
+  proposal,
+}: {
+  view: Extract<RequestView, { kind: "approval" }>;
+  nowMs: number;
+  onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
+  proposal: ProposalInput;
+}) {
+  const { error, pending, submit } = useAnswer(view, onAnswer);
+  const [note, setNote] = useState("");
+  const noteId = useId();
+  const current = useCurrentValue(proposal);
+  const approve = useCallback(
+    () => submit(approvalAnswer("allow_once", note)),
+    [note, submit]
+  );
+  const reject = useCallback(
+    () => submit(approvalAnswer("deny", note)),
+    [note, submit]
+  );
+  const handleNote = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => setNote(event.target.value),
+    []
+  );
+
+  return (
+    <div
+      className="flex flex-col gap-3 border border-warning/40 bg-warning/10 px-3 py-3 text-sm [&_button]:min-h-10 md:[&_button]:min-h-9"
+      data-testid="request-card"
+    >
+      <h3
+        className="font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-request-heading
+        tabIndex={-1}
+      >
+        {`${proposal.leadName} proposes a change to ${proposal.agentName}`}
+      </h3>
+      <p className="text-muted-foreground text-xs">
+        {expiryText(view.expiresAt, nowMs)}
+      </p>
+      <dl
+        className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-xs"
+        data-testid="team-proposal-fields"
+      >
+        <dt className="text-muted-foreground">Field</dt>
+        <dd>{PROPOSAL_FIELD_LABELS[proposal.field]}</dd>
+        {current === null ? null : <ProposalValue label="Now" text={current} />}
+        <ProposalValue label="Proposed" text={proposal.value} />
+        <dt className="text-muted-foreground">Reason</dt>
+        <dd className="whitespace-pre-wrap">{proposal.reason}</dd>
+      </dl>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor={noteId}>Note for Reject (optional)</Label>
+        <Input
+          disabled={pending}
+          id={noteId}
+          onChange={handleNote}
+          value={note}
+        />
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <Button
+          className="w-full sm:w-auto"
+          disabled={pending}
+          onClick={approve}
+          type="button"
+        >
+          Approve
+        </Button>
+        <Button
+          className="w-full sm:w-auto"
+          disabled={pending}
+          onClick={reject}
+          type="button"
+          variant="outline"
+        >
+          Reject
+        </Button>
+      </div>
+      {error === null ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ApprovalCard({
   view,
   nowMs,
@@ -609,7 +743,13 @@ export function RequestCard({
           view.settled,
           settledAt,
           cancelledByEdit,
-          settledLine(view.kind, view.settled, answeredBy(view.settled, user)),
+          settledLine(
+            view.kind,
+            view.settled,
+            answeredBy(view.settled, user),
+            view.kind === "approval" &&
+              teamProposalFields(view.display) !== null
+          ),
           viewer
         )}
       </p>
@@ -628,6 +768,17 @@ export function RequestCard({
     );
   }
   if (view.kind === "approval") {
+    const proposal = teamProposalFields(view.display);
+    if (proposal !== null) {
+      return (
+        <ProposalCard
+          nowMs={nowMs}
+          onAnswer={onAnswer}
+          proposal={proposal}
+          view={view}
+        />
+      );
+    }
     return (
       <ApprovalCard
         nowMs={nowMs}

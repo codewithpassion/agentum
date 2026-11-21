@@ -3,9 +3,9 @@ id: TM.23
 title: "A room lists all of its own topics"
 milestone: TM
 size: S
-status: todo
+status: ready
 depends_on: [TM.21]
-branch: null
+branch: task/TM.23-a-room-lists-all-of-its-own-topics
 lane: services-inbox
 executor: claude
 ---
@@ -26,3 +26,5 @@ From the TM gate review, round 1 (`docs/reviews/TM-1.md`, must-fix 5).
 - `bun run check && bun run test && bun run build` pass.
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.
+- 2026-11-21: ready at ee18dd1e, review clean after 1 fix round, browser proof passed.

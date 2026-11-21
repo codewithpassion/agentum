@@ -121,8 +121,12 @@ export interface DreamDeps {
   /** A person's answer to a question forgets the notes it did not keep, as that person. */
   memory: Pick<MemoryService, "forget">;
   skillsStore: Pick<SkillsStoreService, "list" | "proposeForAgent" | "reject">;
-  /** A team dream's cost counts toward the workspace's weekly cap: it asks before it runs and tells after. */
+  /**
+   * A dream's cost counts toward the weekly caps. A team dream asks the workspace before it runs and tells it after;
+   * an agent's dream tells `enforceCap` when it ends, so a cap it crosses pauses the agent.
+   */
   spend?: {
+    enforceCap: (agentId: string) => Promise<void>;
     enforceWorkspaceCap: (workspaceId: string) => Promise<void>;
     workspaceOver: (workspaceId: string) => Promise<boolean>;
   };

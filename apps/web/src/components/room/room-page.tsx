@@ -16,9 +16,9 @@ import type { InboxThread } from "#/integrations/trpc/types";
 import { NewTopicDialog } from "./new-topic-dialog.tsx";
 import {
   canPostInRoom,
+  isRoomMember,
   roomDirectory,
   roomMembers,
-  topicsOfTeam,
   withoutPerson,
 } from "./room-logic.ts";
 import { SlackLinkBadge, useSlackLinkLabel } from "./room-slack-link.tsx";
@@ -49,14 +49,11 @@ export function RoomPage({
   userId,
 }: RoomPageProps) {
   const list = usePolledQuery(
-    () => getTrpc().inbox.listThreads.query(),
+    () => getTrpc().inbox.listThreads.query({ teamId: team.id }),
     initialThreads
   );
   const { refresh: refreshThreads } = list;
-  const topics = useMemo(
-    () => topicsOfTeam(list.data ?? initialThreads, team),
-    [list.data, initialThreads, team]
-  );
+  const topics = list.data ?? initialThreads;
   const directory = useMemo(
     () => roomDirectory({ agents, handles, people }),
     [agents, handles, people]
@@ -87,6 +84,12 @@ export function RoomPage({
   const slackBadge =
     slackLabel === null ? null : <SlackLinkBadge label={slackLabel} />;
 
+  const archivedNote =
+    team.archivedAt === null ? null : (
+      <p className="text-muted-foreground text-sm">
+        This team is archived. Its room is read-only.
+      </p>
+    );
   const newTopic = canPost ? (
     <NewTopicDialog
       members={otherMembers}
@@ -108,6 +111,7 @@ export function RoomPage({
       <aside className="flex flex-col gap-4 max-md:hidden">
         <h1 className="font-heading text-3xl text-foreground">{team.name}</h1>
         <p className="text-muted-foreground text-sm">Team room</p>
+        {archivedNote}
         {slackBadge}
         {newTopic}
         {list.error === null ? null : (
@@ -138,7 +142,10 @@ export function RoomPage({
             </SheetContent>
           </Sheet>
         </div>
-        <div className="md:hidden">{slackBadge}</div>
+        <div className="md:hidden">
+          {archivedNote}
+          {slackBadge}
+        </div>
         <div className="min-w-0">
           {topicId === undefined ? (
             <p className="text-muted-foreground text-sm">
@@ -150,6 +157,7 @@ export function RoomPage({
             <RoomThread
               canPost={canPost}
               directory={directory}
+              isMember={isRoomMember(team, userId)}
               key={topicId}
               members={members}
               onPosted={refreshThreads}

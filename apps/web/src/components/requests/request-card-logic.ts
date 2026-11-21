@@ -24,6 +24,12 @@ import {
   type TakeoverDisplay,
   takeoverDisplaySchema,
 } from "@repo/protocol/requests";
+import {
+  type ProposalField,
+  type ProposalInput,
+  proposalOf,
+  TEAM_PROPOSE_TOOL,
+} from "@repo/services/teams/proposal";
 import { clockTime, type Viewer } from "#/lib/time.ts";
 
 const MS_PER_MINUTE = 60_000;
@@ -117,6 +123,13 @@ const DECISION_TEXT: Record<ApprovalDecision, string> = {
   deny: "Denied",
 };
 
+/** What a lead's proposal calls each decision, matching the card's buttons. */
+const PROPOSAL_DECISION_TEXT: Record<ApprovalDecision, string> = {
+  allow_once: "Approved",
+  always_allow: "Approved",
+  deny: "Rejected",
+};
+
 const SURFACE_TEXT: Record<AnswerSurface, string> = {
   a2a: "an outside agent",
   slack: "Slack",
@@ -145,7 +158,8 @@ const cancelledLine = (
 export const settledLine = (
   kind: RequestView["kind"],
   settled: Settled,
-  by: string | null
+  by: string | null,
+  proposal = false
 ): string => {
   switch (settled.status) {
     case "expired":
@@ -168,7 +182,10 @@ export const settledLine = (
         }
         const note =
           answer.decision === "deny" && answer.note ? `: ${answer.note}` : "";
-        return `${DECISION_TEXT[answer.decision]}${who}${where}${note}`;
+        const text = proposal
+          ? PROPOSAL_DECISION_TEXT[answer.decision]
+          : DECISION_TEXT[answer.decision];
+        return `${text}${who}${where}${note}`;
       }
       return `${answeredVerb(kind)}${who}${where}`;
     }
@@ -252,13 +269,65 @@ export const a2aSendFields = (
 };
 
 /**
+ * The proposal a lead's `team_propose_change` approval carries, or null when
+ * the display is not one or its input is cut short. The display has no tool
+ * use id, so the tool name is what tells a proposal apart.
+ */
+export const teamProposalFields = (
+  display: ApprovalDisplay
+): ProposalInput | null =>
+  display.toolName === TEAM_PROPOSE_TOOL ? proposalOf(display) : null;
+
+/** The heading above a pending request in a room: who needs the person. A lead's proposal names the lead, not the agent it changes. */
+export const requestHeading = (
+  view: RequestView,
+  agentName: string
+): string => {
+  const proposal =
+    view.kind === "approval" ? teamProposalFields(view.display) : null;
+  return `${proposal?.leadName ?? agentName} needs you`;
+};
+
+/** The words a proposal card uses for a field. */
+export const PROPOSAL_FIELD_LABELS: Record<ProposalField, string> = {
+  contextBudget: "Context budget",
+  effort: "Effort",
+  instructions: "Instructions",
+  model: "Model",
+};
+
+/** The member agent's current value of a proposed field, as text. A budget or effort left unset reads "default". */
+export const currentProposalValue = (
+  agent: {
+    instructions: string;
+    model: string;
+    runtimeConfig: { contextBudget?: string; effort?: string };
+  },
+  field: ProposalField
+): string => {
+  switch (field) {
+    case "instructions":
+      return agent.instructions;
+    case "model":
+      return agent.model;
+    case "effort":
+      return agent.runtimeConfig.effort ?? "default";
+    default:
+      return agent.runtimeConfig.contextBudget ?? "default";
+  }
+};
+
+/**
  * True when the card offers "Always allow". The rule it saves applies to member
  * runs, and a peer-rooted run is gated by its connection's tool policy and not
  * by that rule alone, so a peer's run does not offer it. An outgoing message to
- * an outside agent is always asked, so it does not either.
+ * an outside agent is always asked, and a lead's proposed change is a one-off
+ * settings change, so neither offers it.
  */
 export const offersAlwaysAllow = (display: ApprovalDisplay): boolean =>
-  display.peerRun !== true && a2aSendFields(display) === null;
+  display.peerRun !== true &&
+  a2aSendFields(display) === null &&
+  teamProposalFields(display) === null;
 
 /** The answer to an approval. A blank note is left out. */
 export const approvalAnswer = (

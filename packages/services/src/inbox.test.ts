@@ -17,7 +17,11 @@ import { asc, eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { createEventsService } from "./events.ts";
-import { createInboxService, type InboxService } from "./inbox.ts";
+import {
+  createInboxService,
+  type InboxService,
+  THREAD_LIST_LIMIT,
+} from "./inbox.ts";
 import {
   loadPrivateNotesUser,
   privateNotesUserOf,
@@ -1177,7 +1181,7 @@ const discussionFixture = async () => {
     runId: lead.id,
     workspaceId: WORKSPACE,
   };
-  return { principal, threadId };
+  return { principal, teamId, threadId };
 };
 
 test("three rounds wake three members nine times; discussion wakes get no private notes", async () => {
@@ -1480,4 +1484,163 @@ test("discussion reply deduplication is scoped to its own topic", async () => {
       (post) => post.text === "My discussion answer"
     )
   ).toBe(true);
+});
+
+const archive = (teamId: string) =>
+  db
+    .update(teamRows)
+    .set({ archivedAt: START })
+    .where(eq(teamRows.id, teamId))
+    .run();
+
+test("an archived team's room refuses a person's post and keeps clearAttention", async () => {
+  build({ script: { alpha: "on it" } });
+  await addAgents("alpha");
+  const teamId = seedTeam({ members: { agents: ["alpha"], users: ["u1"] } });
+  const threadId = await topicIn(teamId);
+  archive(teamId);
+
+  await expect(say(threadId, "@alpha go")).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  expect(runsOf("alpha")).toHaveLength(0);
+  const cleared = await inbox.clearAttention(user, { threadId });
+  expect(cleared.id).toBe(threadId);
+  expect((await inbox.readThread(user, { threadId })).posts).toHaveLength(0);
+});
+
+test("an archived team's room refuses a run's post", async () => {
+  build({ script: { alpha: null, beta: "hi" } });
+  await addAgents("alpha", "beta");
+  const teamId = seedTeam({
+    members: { agents: ["alpha", "beta"], users: ["u1"] },
+  });
+  const threadId = await topicIn(teamId);
+  const started = await say(threadId, "@alpha go");
+  archive(teamId);
+
+  await expect(
+    say(threadId, "@beta look", runPrincipal("alpha", firstRunId(started.runs)))
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(runsOf("beta")).toHaveLength(0);
+});
+
+test("a reply already running when the team is archived lands and wakes nobody", async () => {
+  build({ script: { alpha: null, beta: "hi" } });
+  await addAgents("alpha", "beta");
+  const teamId = seedTeam({
+    members: { agents: ["alpha", "beta"], users: ["u1"] },
+    rules: "Rule X",
+  });
+  const threadId = await topicIn(teamId);
+  const started = await say(threadId, "@alpha go");
+  const runId = firstRunId(started.runs);
+  archive(teamId);
+
+  await runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    status: "done",
+    text: "@beta please look",
+  });
+
+  expect(await transcript(threadId)).toEqual([
+    { author: "user", runId: null, text: "@alpha go" },
+    { author: agentId("alpha"), runId, text: "@beta please look" },
+  ]);
+  expect(runsOf("beta")).toHaveLength(0);
+});
+
+test("postExternal refuses an archived team", async () => {
+  build();
+  const teamId = seedTeam({ members: { users: ["u1"] } });
+  archive(teamId);
+
+  await expect(
+    inbox.postExternal({
+      alongside: () => [],
+      authorId: "u1",
+      teamId,
+      text: "hello",
+      thread: { kind: "new", title: "Slack" },
+      waker: null,
+      workspaceId: WORKSPACE,
+    })
+  ).rejects.toThrow("Team not found");
+  expect(db.select().from(inboxThreadRows).all()).toHaveLength(0);
+});
+
+test("a discussion running when the team is archived starts no more runs", async () => {
+  const { principal, teamId, threadId } = await discussionFixture();
+  await inbox.startDiscussion(principal, {
+    question: "Discuss",
+    rounds: 3,
+    topic: threadId,
+  });
+  const before = allRuns().length;
+  archive(teamId);
+  nowMs += 10 * 60 * 1000;
+
+  await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+
+  expect(allRuns()).toHaveLength(before);
+});
+
+test("listing one team's room returns its topic even when 60 newer topics sit in another team", async () => {
+  build();
+  const teamA = seedTeam({ members: { users: [user.userId] } });
+  const teamB = seedTeam({ members: { users: [user.userId] } });
+  const older = await topicIn(teamB);
+  for (let index = 0; index < 60; index += 1) {
+    nowMs += 1000;
+    // biome-ignore lint/performance/noAwaitInLoops: topic ids and times must run in order
+    await topicIn(teamA);
+  }
+
+  const workspaceList = await inbox.listThreads(user);
+  expect(workspaceList).toHaveLength(THREAD_LIST_LIMIT);
+  expect(workspaceList.map((thread) => thread.id)).not.toContain(older);
+
+  const roomB = await inbox.listThreads(user, { teamId: teamB });
+  expect(roomB.map((thread) => thread.id)).toEqual([older]);
+  const roomA = await inbox.listThreads(user, { teamId: teamA });
+  expect(roomA).toHaveLength(THREAD_LIST_LIMIT);
+  expect(roomA.every((thread) => thread.teamId === teamA)).toBe(true);
+});
+
+test("listing a team's room hides limited topics from people outside them, and an unknown team lists nothing", async () => {
+  build();
+  const team = seedTeam({ members: { users: [user.userId, "u2"] } });
+  const visible = await topicIn(team);
+  await topicIn(team, [user.userId]);
+
+  expect(
+    (await inbox.listThreads(user, { teamId: team })).map((thread) => thread.id)
+  ).toContain(visible);
+  expect(await inbox.listThreads(user, { teamId: "no-such-team" })).toEqual([]);
+  expect(
+    (await inbox.listThreads(colleague, { teamId: team })).map(
+      (thread) => thread.id
+    )
+  ).toEqual([visible]);
+});
+
+test("the Everyone room also lists the topics from before teams", async () => {
+  build();
+  const legacy = await newThread();
+  db.insert(teamRows)
+    .values({
+      createdAt: START,
+      id: "everyone-w1",
+      name: "Everyone",
+      slug: "everyone",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const current = await newThread();
+  const other = seedTeam({ members: { users: [user.userId] } });
+  await topicIn(other);
+
+  const room = await inbox.listThreads(user, { teamId: "everyone-w1" });
+  expect(new Set(room.map((thread) => thread.id))).toEqual(
+    new Set([legacy, current])
+  );
 });

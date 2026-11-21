@@ -17,7 +17,7 @@ import { createEventsService } from "./events.ts";
 import { createManagedRuntime } from "./managed/runtime.ts";
 import { createRequestsService } from "./requests.ts";
 import { loadRun } from "./runs/queries.ts";
-import type { RuntimeAdapter } from "./runs/types.ts";
+import type { AdapterDeps, RuntimeAdapter } from "./runs/types.ts";
 import { createRunsService } from "./runs.ts";
 import { SYSTEM_PRINCIPAL as system } from "./workspaces.ts";
 
@@ -552,8 +552,14 @@ test("cloud and managed resume forward a closed request to their wake-up ports",
       },
     },
   });
-  await cloud.resume?.(run, request);
-  await managed.resume?.(run, request);
+  const deps: AdapterDeps = {
+    claimRun: () => Promise.reject(new Error("unused")),
+    clock: { now: () => new Date(now), sleep: () => Promise.resolve() },
+    completeRun: () => Promise.reject(new Error("unused")),
+    ingestRunEvents: () => Promise.reject(new Error("unused")),
+  };
+  await cloud.resume?.(run, request, deps);
+  await managed.resume?.(run, request, deps);
   expect(cloudCalls).toEqual([[run.id, run.sessionId, request.id]]);
   expect(managedCalls).toEqual([run.id]);
   const legacy = createCloudRuntime({
@@ -561,7 +567,7 @@ test("cloud and managed resume forward a closed request to their wake-up ports",
     runner: { cancel: () => Promise.resolve(), start: () => Promise.resolve() },
     runTokenKey: "unused",
   });
-  await legacy.resume?.(run, request);
+  await legacy.resume?.(run, request, deps);
 });
 
 test("an answer delivered during the opened notification leaves the run running", async () => {
