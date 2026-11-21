@@ -768,7 +768,7 @@ export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 /** The heading of a Needs you card, from the name of the agent it is about. */
 export const NEEDS_YOU_HEADINGS: Record<
   NeedsYouKind,
-  (agentName: string) => string
+  (agentName: string, teamName?: string) => string
 > = {
   a2a_connection: (name) => `${name} has a connection waiting for approval`,
   a2a_message: (name) => `A message for ${name} waits for approval`,
@@ -777,7 +777,10 @@ export const NEEDS_YOU_HEADINGS: Record<
   connector_secret: (name) => `${name} needs a connector secret`,
   decisions: (name) => `${name} has decisions waiting`,
   dream_held: (name) => `${name} has dream changes waiting for your approval`,
-  dream_question: (name) => `${name} has a question from its dream`,
+  dream_question: (name, teamName) =>
+    teamName === undefined
+      ? `${name} has a question from its dream`
+      : `${teamName} has a question from its team dream`,
   inbox_reply: (name) => `${name} replied`,
   library_conflict: (name) => `${name} left a library conflict`,
   memory_note: (name) => `${name} wants to remember something`,
@@ -1722,6 +1725,8 @@ export interface DreamNeedsYou {
   options: DreamQuestionOption[];
   question: string;
   questionId: string;
+  /** Set when the question belongs to a team: the team's name, which the heading shows. */
+  teamName?: string;
 }
 
 /** What a `dream_held` Needs you card holds: the dream whose batch waits for its owner. */
