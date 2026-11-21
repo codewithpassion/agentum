@@ -3,9 +3,9 @@ id: TX.9
 title: "A team dream question names the team"
 milestone: TX
 size: S
-status: in_progress
+status: ready
 depends_on: []
-branch: null
+branch: task/TX.9-a-team-dream-question-names-the-team
 lane: services-desk
 executor: claude
 ---
@@ -22,3 +22,4 @@ Check. A desk test with a team question, and the Needs you pane in the browser.
 ## Log
 - 2026-11-21: added by controller from the TX walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 42fa15f9, review clean. Browser step skipped under the new rule.

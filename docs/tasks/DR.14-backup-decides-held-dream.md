@@ -3,7 +3,7 @@ id: DR.14
 title: "The backup owner decides a held dream batch"
 milestone: DR
 size: S
-status: ready
+status: done
 depends_on: [ME.18]
 branch: task/DR.14-backup-decides-held-dream
 lane: services-dream
@@ -30,3 +30,4 @@ Controller decision (20 Nov 2026): the backup owner decides a held dream batch t
 ## Log
 - 2026-11-21: added from the ME.18 review.
 - 2026-11-21: dispatched. Ready at a7431514, review clean with no fix rounds. Nit: the Knows tab still hides Approve and Reject from the backup.
+- 2026-11-21: merged 8b777cb9, merge check passed. Done.
