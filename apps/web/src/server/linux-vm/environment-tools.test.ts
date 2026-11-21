@@ -333,3 +333,95 @@ describe("installEnvironmentTools", () => {
     ]);
   });
 });
+
+describe("installEnvironmentTools in a team room", () => {
+  const ROOM_TOOLS = ["read"];
+  const ROOM_EXTENSIONS = [LIBRARY_TOOLS_EXTENSION];
+  const network = { enabled: true, fetcherOf };
+
+  test.each(["isolate", "linux-vm"] as const)(
+    "%s keeps only read, with no network, script or VM extension",
+    (environment) => {
+      const registry = createRegistry();
+      installEnvironmentTools(
+        registry,
+        environment,
+        slugOf,
+        undefined,
+        network,
+        scriptsOf,
+        undefined,
+        undefined,
+        true
+      );
+
+      expect(toolNames(registry)).toEqual(ROOM_TOOLS);
+      expect(extensionNames(registry)).toEqual(ROOM_EXTENSIONS);
+    }
+  );
+
+  test("a room takes out the ordinary tools a session installed before", () => {
+    const registry = createRegistry();
+    installEnvironmentTools(registry, "linux-vm", slugOf);
+    installEnvironmentTools(
+      registry,
+      "linux-vm",
+      slugOf,
+      undefined,
+      network,
+      scriptsOf,
+      undefined,
+      undefined,
+      true
+    );
+    expect(toolNames(registry)).toEqual(ROOM_TOOLS);
+    expect(extensionNames(registry)).toEqual(ROOM_EXTENSIONS);
+
+    installEnvironmentTools(
+      registry,
+      "isolate",
+      slugOf,
+      undefined,
+      network,
+      scriptsOf
+    );
+    installEnvironmentTools(
+      registry,
+      "isolate",
+      slugOf,
+      undefined,
+      network,
+      scriptsOf,
+      undefined,
+      undefined,
+      true
+    );
+    expect(toolNames(registry)).toEqual(ROOM_TOOLS);
+    expect(extensionNames(registry)).toEqual(ROOM_EXTENSIONS);
+  });
+
+  test("the same agent's ordinary run keeps write, edit and its other tools", () => {
+    const registry = createRegistry();
+    installEnvironmentTools(
+      registry,
+      "isolate",
+      slugOf,
+      undefined,
+      network,
+      scriptsOf,
+      undefined,
+      undefined,
+      false
+    );
+    expect(toolNames(registry)).toEqual([
+      "edit",
+      "read",
+      "run_script",
+      "web_fetch",
+      "write",
+    ]);
+
+    installEnvironmentTools(registry, "linux-vm", slugOf, undefined, network);
+    expect(toolNames(registry)).toEqual(["bash", "edit", "read", "write"]);
+  });
+});
