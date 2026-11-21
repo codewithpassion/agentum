@@ -3,9 +3,9 @@ id: TM.17
 title: "Pass the compaction setting to Claude Code on machines"
 milestone: TM
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/TM.17-pass-the-compaction-setting-to-claude-co
 lane: daemon
 executor: claude
 ---
@@ -25,3 +25,4 @@ In `apps/agentum/src/claude.rs`, pass `--autocompact <tokens>` from the run's co
 
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.

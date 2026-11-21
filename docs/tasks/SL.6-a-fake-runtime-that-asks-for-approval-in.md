@@ -3,7 +3,7 @@ id: SL.6
 title: "A fake runtime that asks for approval in a room"
 milestone: SL
 size: S
-status: ready
+status: done
 depends_on: []
 branch: task/SL.6-a-fake-runtime-that-asks-for-approval-in
 lane: runtimes
@@ -21,3 +21,4 @@ Check. A run test for the mode. Browser: post `@ada ask:send_email` in a linked 
 - 2026-11-21: added by controller.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at 07a0b305, review clean with no fix rounds, browser check passed in the fake Slack thread.
+- 2026-11-21: merged cfb162b2, merge check passed. Done.
