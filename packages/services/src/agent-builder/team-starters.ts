@@ -107,8 +107,14 @@ export const createTeamStarterLifecycle = ({
           templateDraft("drive_tidy", choices).raw,
           templateDraft("weekly_report", choices).raw,
         ];
+    // A starter has no per-member setup, so every member runs on the workspace's
+    // default runtime. With no key there is none, and reconcile reports the gap.
+    const runsOn = choices.runtimes.includes("cloud")
+      ? { runtime: "cloud" as const }
+      : null;
     for (const member of members) {
       member.rules.push(SKILL_RULE);
+      member.runsOn = runsOn;
     }
     const rules = `${SKILL_RULE}\nThe lead coordinates and proposes changes; each specialist stays in its lane. Share sources, progress and blockers in the team room. Ask a person before sending messages or changing business records.`;
     return {
