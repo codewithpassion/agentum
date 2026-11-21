@@ -1,8 +1,7 @@
 import { expect, test } from "bun:test";
 import { spawn } from "bun";
 
-// biome-ignore lint/suspicious/noSkippedTests: flaky under load, disabled by FX.7, see docs/backlog/flaky-tests.md
-test.skip("ArtifactRoom admission, Yjs validation, SQLite, restart, awareness and checkpoint recovery in workerd", async () => {
+test("ArtifactRoom admission, Yjs validation, SQLite, restart, awareness and checkpoint recovery in workerd", async () => {
   const bundler = spawn(["bun", `${import.meta.dir}/fixtures/bundle-room.ts`], {
     stderr: "pipe",
     stdout: "pipe",
