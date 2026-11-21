@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   convertAgentMentions,
   guestName,
+  readSlackMarkup,
   slackMentionedUserIds,
   TOPIC_TITLE_MAX,
   topicTitle,
@@ -121,4 +122,32 @@ test("guestName cuts a long guest name to 80 characters", () => {
 test("guestName falls back to Someone for an empty name", () => {
   expect(guestName("   ")).toBe("Someone");
   expect(guestName("")).toBe("Someone");
+});
+
+test("readSlackMarkup names users and channels from the markup or the lookup", () => {
+  const names = {
+    channels: new Map([["C2", "ops"]]),
+    users: new Map([["U1", "Ada"]]),
+  };
+  expect(
+    readSlackMarkup("hi <@U1> and <@U9|bob> in <#C2> and <#C3|dev>", names)
+  ).toBe("hi @Ada and @bob in #ops and #dev");
+  expect(readSlackMarkup("<@U7>")).toBe("@U7");
+});
+
+test("readSlackMarkup reads links and broadcasts", () => {
+  expect(
+    readSlackMarkup(
+      "<https://x.io|the site> <https://y.io> <mailto:a@b.co|a@b.co>"
+    )
+  ).toBe("[the site](https://x.io) https://y.io a@b.co");
+  expect(readSlackMarkup("<!here> <!subteam^S1|@eng> <!date^1|Jan 1>")).toBe(
+    "@here @eng Jan 1"
+  );
+});
+
+test("readSlackMarkup decodes entities outside the markup", () => {
+  expect(
+    readSlackMarkup("a &amp; b &lt;c&gt; <https://x.io?a=1&amp;b=2>")
+  ).toBe("a & b <c> https://x.io?a=1&amp;b=2");
 });

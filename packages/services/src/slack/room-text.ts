@@ -73,3 +73,71 @@ export const convertAgentMentions = (
 export const guestName = (name: string): string =>
   cutToLength(collapseWhitespace(name), GUEST_LABEL_MAX).trimEnd() ||
   FALLBACK_GUEST_LABEL;
+
+/** One Slack markup token: `<@U1>`, `<#C1|name>`, `<!here>`, `<https://x|label>`. */
+const SLACK_TOKEN = /<([^<>]+)>/g;
+const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+const MAILTO = /^mailto:/i;
+const ENTITY = /&(amp|lt|gt);/g;
+const ENTITIES: Record<string, string> = { amp: "&", gt: ">", lt: "<" };
+
+/** The names Slack markup can be read with, by Slack id. */
+export interface SlackNames {
+  channels?: ReadonlyMap<string, string>;
+  users?: ReadonlyMap<string, string>;
+}
+
+/** The user and channel ids a message points at, for the caller to look up. */
+const MENTIONED_CHANNEL = /<#([A-Z0-9]+)(?:\|[^>]*)?>/g;
+export const slackMentionedChannelIds = (text: string): string[] => [
+  ...new Set([...text.matchAll(MENTIONED_CHANNEL)].map(([, id = ""]) => id)),
+];
+
+const decodeEntities = (text: string): string =>
+  text.replace(ENTITY, (_, name: string) => ENTITIES[name] ?? "");
+
+const readToken = (token: string, names: SlackNames): string => {
+  const [target = "", ...labelParts] = token.split("|");
+  const label = labelParts.join("|");
+  const first = target.charAt(0);
+  const id = target.slice(1);
+  if (first === "@") {
+    return `@${label || names.users?.get(id) || id}`;
+  }
+  if (first === "#") {
+    return `#${label || names.channels?.get(id) || id}`;
+  }
+  if (first === "!") {
+    const [command = ""] = id.split("^");
+    return label || `@${command}`;
+  }
+  if (!SCHEME.test(target)) {
+    return `<${token}>`;
+  }
+  const shown = target.replace(MAILTO, "");
+  if (label === "" || label === target || label === shown) {
+    return shown;
+  }
+  return MAILTO.test(target) ? `${label} (${shown})` : `[${label}](${target})`;
+};
+
+/**
+ * Reads Slack's markup as text a person can read: `<@U1>` becomes `@name`,
+ * `<#C1>` becomes `#name`, `<!here>` becomes `@here`, a link with a label
+ * becomes a markdown link, and `&amp;`, `&lt;` and `&gt;` become the
+ * characters they stand for. An id with no known name reads as the id.
+ */
+export const readSlackMarkup = (
+  text: string,
+  names: SlackNames = {}
+): string => {
+  let out = "";
+  let last = 0;
+  for (const match of text.matchAll(SLACK_TOKEN)) {
+    const [whole = "", token = ""] = match;
+    out += decodeEntities(text.slice(last, match.index));
+    out += readToken(token, names);
+    last = match.index + whole.length;
+  }
+  return out + decodeEntities(text.slice(last));
+};

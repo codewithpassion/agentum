@@ -50,6 +50,7 @@ import {
 } from "./apps.ts";
 import { createSlackClient, type SlackFetch } from "./client.ts";
 import type { SlackEvent } from "./event-parse.ts";
+import { nameUsers } from "./names.ts";
 import { withRetry } from "./post.ts";
 import { memberSenderApps } from "./room-out-store.ts";
 import {
@@ -62,6 +63,9 @@ import {
 import {
   convertAgentMentions,
   guestName,
+  readSlackMarkup,
+  type SlackNames,
+  slackMentionedChannelIds,
   slackMentionedUserIds,
   topicTitle,
 } from "./room-text.ts";
@@ -137,6 +141,38 @@ export const createRoomIntake = ({
     } catch (error) {
       console.error("Slack guest name lookup failed", error);
       return null;
+    }
+  };
+
+  /** The names of the users and channels a message points at. Best effort: an id Slack will not name stays an id. */
+  const namesIn = async (
+    app: SlackAppRow,
+    text: string
+  ): Promise<SlackNames> => {
+    const userIds = slackMentionedUserIds(text);
+    const channelIds = slackMentionedChannelIds(text);
+    if (userIds.length + channelIds.length === 0) {
+      return {};
+    }
+    try {
+      const token = await secrets.botToken(app);
+      if (!token) {
+        return {};
+      }
+      const client = createSlackClient({ fetch: slackFetch, token });
+      const channels = new Map<string, string>();
+      await Promise.all(
+        channelIds.map(async (id) => {
+          const found = await client.channelName(id);
+          if (found.kind === "ok" && found.name !== null) {
+            channels.set(id, found.name);
+          }
+        })
+      );
+      return { channels, users: await nameUsers(client, userIds) };
+    } catch (error) {
+      console.error("Slack mention name lookup failed", error);
+      return {};
     }
   };
 
@@ -337,7 +373,8 @@ export const createRoomIntake = ({
       teamId,
       workspaceId: app.workspaceId,
     });
-    const text = convertAgentMentions(message.text, roomAgents)
+    const agentsNamed = convertAgentMentions(message.text, roomAgents);
+    const text = readSlackMarkup(agentsNamed, await namesIn(app, agentsNamed))
       .trim()
       .slice(0, INPUT_TEXT_MAX);
     const isReply =
