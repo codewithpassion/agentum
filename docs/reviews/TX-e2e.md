@@ -1,6 +1,6 @@
 # TX end-to-end: the team extras walkthrough
 
-Task TX.7. Verdict: the three team extras work on local. A lead ran a three-round discussion in a team room, raised a four-question decision queue that was answered half in the web app and half in the fake Slack, and a team dream settled a seeded conflict between two members. Every step in the scope worked. Five things around the edges did not, and are listed below with proposed tasks. The browser proof, step by step with screenshots at 1280x800 and 390x844, is `docs/reviews/tasks/TX.7/browser.md`.
+Task TX.7. Verdict: the three team extras work on local. A lead ran a three-round discussion in a team room, raised a four-question decision queue that was answered half in the web app and half in the fake Slack, and a team dream settled a seeded conflict between two members. Every step in the scope worked. Five things around the edges did not, and are listed below with proposed tasks. The browser proof, step by step with screenshots at 1280x800 and 390x844, is `docs/reviews/tasks/TX.7/browser.md`. A fresh verifier ran every flow at both sizes on a clean database. It marked the run a fail on the strict console rule, because it saw `database is locked` 500s, and the report traces all of them to a script or a `sqlite3` read touching the database file while the page polled it. A control run with nothing else on the file was clean. See "Things to know" for how to avoid it.
 
 ## What was real and what was not
 
@@ -75,14 +75,17 @@ Check. A tick test with two finished dreams for one team and one slot: one post.
 
 - The first dream in a team that never dreamed reads every room post, including the lead's checkpoint echoes. Real runs are fewer, so nothing to do.
 - The fake runtime echoes cascade: a lead's echo mentions members, and their echoes appear as Slack messages that start `Echo: Echo:`.
-- `team-propose.ts` uses the lead's newest room run in any team. A lead that sits in two teams has to be woken in the right team first, or the tool refuses with "This credential may not do that".
+- `team-propose.ts` uses the lead's newest room run in any team. A lead that sits in two teams has to be woken in the right team first (a Slack message in the linked channel does it), or the tool refuses with "This credential may not do that".
 
 ## Things to know about running this walkthrough
 
 - Start the dev server with `VITE_FAKE_SLACK_URL=http://localhost:<slack port>` on a free port, run `bun scripts/dev/fake-slack.ts --app-url http://localhost:<port> --port <slack port>`, sign in with `/api/dev-login`, and run `bun scripts/dev/seed-slack-room.ts`. This host needs `AGENT_BROWSER_EXECUTABLE_PATH=$HOME/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell`.
 - Run the dev server and the fake Slack with the Bash tool's `run_in_background`. A server started with `nohup ... &` in one call dies when that call ends, and a background job stops after its timeout.
 - An agent wakes at most 10 times an hour. A lead that runs a discussion, then answers room posts, can reach it, and a refused wake leaves only an `inbox.loop_stopped` event (finding TX.8). Seed another fake agent for a second pass.
-- Do not run `sqlite3` or any script that writes the local database while the server posts a Slack card. The server logs "database is locked" and the card is lost.
+- Do not run `sqlite3` (even a read) or any script that writes the local database while a page is polling or the tick runs. Under the dev server's journal mode a read blocks the server's writes, and the page logs 500s ("database is locked", "Member lookup failed") and loses a Slack card. Keep the browser on a quiet page when a script runs, and check the database only between steps.
+- `team-propose.ts` marks the lead's run `running` while it calls the tool. A checkpoint wake of that lead in the same seconds is refused with "Run cannot be claimed" and the discussion waits for the next tick. It cost nothing here, but start the discussion and let the rounds finish before raising anything else for that lead.
+- Under `vite dev` the app's own links use `PUBLIC_BASE_URL` from `apps/web/.env.local`. Start vite with `PUBLIC_BASE_URL=http://localhost:<port>` if a page redirects to the wrong port.
+- The workspace key can be typed on Home (a field shows until a key exists) or in Settings. The timezone is a setting in Settings, Timezone, so no console call is needed for step 6. The server logs "database is locked" and the card is lost.
 
 ## How to run it again
 
