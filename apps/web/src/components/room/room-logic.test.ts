@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import type { AgentAvatar, Team } from "@repo/db/shared";
-import type { InboxThread } from "#/integrations/trpc/types.ts";
 import {
   assignedTo,
   authorName,
@@ -13,25 +12,11 @@ import {
   roomForInboxLink,
   roomMembers,
   topicSessionIds,
-  topicsOfTeam,
   withoutPerson,
 } from "./room-logic.ts";
 import { memberKey, type RoomMember } from "./room-types.ts";
 
 const avatar: AgentAvatar = { color: "blue", glyph: "R" };
-const createdAt = "2026-01-01T00:00:00.000Z";
-
-const thread = (overrides: Partial<InboxThread>): InboxThread => ({
-  attentionClearedAt: null,
-  createdAt,
-  createdBy: "u1",
-  id: "t1",
-  lastPostAt: createdAt,
-  teamId: "team1",
-  title: "T",
-  ...overrides,
-});
-
 const ruby: RoomMember = {
   avatar,
   handle: "ruby",
@@ -94,31 +79,6 @@ const ownTeam: Pick<Team, "archivedAt" | "members" | "slug"> = {
 test("isEveryone is true only for the Everyone team slug", () => {
   expect(isEveryone({ slug: "everyone" })).toBe(true);
   expect(isEveryone({ slug: "finance" })).toBe(false);
-});
-
-test("topicsOfTeam keeps threads of the team in input order", () => {
-  const threads = [
-    thread({ id: "a", teamId: "team1" }),
-    thread({ id: "b", teamId: "team2" }),
-    thread({ id: "c", teamId: "team1" }),
-  ];
-  const topics = topicsOfTeam(threads, { id: "team1", slug: "finance" });
-  expect(topics.map((topic) => topic.id)).toEqual(["a", "c"]);
-});
-
-test("topicsOfTeam adds legacy null-team topics only to Everyone", () => {
-  const threads = [
-    thread({ id: "legacy", teamId: null }),
-    thread({ id: "mine", teamId: "team1" }),
-    thread({ id: "other", teamId: "team2" }),
-  ];
-  const inEveryone = topicsOfTeam(threads, {
-    id: "everyone1",
-    slug: "everyone",
-  });
-  const inFinance = topicsOfTeam(threads, { id: "team1", slug: "finance" });
-  expect(inEveryone.map((topic) => topic.id)).toEqual(["legacy"]);
-  expect(inFinance.map((topic) => topic.id)).toEqual(["mine"]);
 });
 
 test("canPostInRoom lets anyone post in Everyone", () => {

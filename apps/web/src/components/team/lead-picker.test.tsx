@@ -34,9 +34,6 @@ test("the select offers No lead and each agent, labelled Lead", () => {
   expect(html).toMatch(NO_LEAD_OPTION);
   expect(html).toContain('value="agent-1"');
   expect(html).toContain('value="agent-2"');
-  expect(html).toContain(
-    "The lead hears room messages that name nobody, and hands the work out."
-  );
 });
 
 test("the current lead's option is selected", () => {

@@ -18,7 +18,11 @@ import { asc, eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { createEventsService } from "./events.ts";
-import { createInboxService, type InboxService } from "./inbox.ts";
+import {
+  createInboxService,
+  type InboxService,
+  THREAD_LIST_LIMIT,
+} from "./inbox.ts";
 import {
   loadPrivateNotesUser,
   privateNotesUserOf,
@@ -1620,4 +1624,65 @@ test("a discussion running when the team is archived starts no more runs", async
   await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
 
   expect(allRuns()).toHaveLength(before);
+});
+
+test("listing one team's room returns its topic even when 60 newer topics sit in another team", async () => {
+  build();
+  const teamA = seedTeam({ members: { users: [user.userId] } });
+  const teamB = seedTeam({ members: { users: [user.userId] } });
+  const older = await topicIn(teamB);
+  for (let index = 0; index < 60; index += 1) {
+    nowMs += 1000;
+    // biome-ignore lint/performance/noAwaitInLoops: topic ids and times must run in order
+    await topicIn(teamA);
+  }
+
+  const workspaceList = await inbox.listThreads(user);
+  expect(workspaceList).toHaveLength(THREAD_LIST_LIMIT);
+  expect(workspaceList.map((thread) => thread.id)).not.toContain(older);
+
+  const roomB = await inbox.listThreads(user, { teamId: teamB });
+  expect(roomB.map((thread) => thread.id)).toEqual([older]);
+  const roomA = await inbox.listThreads(user, { teamId: teamA });
+  expect(roomA).toHaveLength(THREAD_LIST_LIMIT);
+  expect(roomA.every((thread) => thread.teamId === teamA)).toBe(true);
+});
+
+test("listing a team's room hides limited topics from people outside them, and an unknown team lists nothing", async () => {
+  build();
+  const team = seedTeam({ members: { users: [user.userId, "u2"] } });
+  const visible = await topicIn(team);
+  await topicIn(team, [user.userId]);
+
+  expect(
+    (await inbox.listThreads(user, { teamId: team })).map((thread) => thread.id)
+  ).toContain(visible);
+  expect(await inbox.listThreads(user, { teamId: "no-such-team" })).toEqual([]);
+  expect(
+    (await inbox.listThreads(colleague, { teamId: team })).map(
+      (thread) => thread.id
+    )
+  ).toEqual([visible]);
+});
+
+test("the Everyone room also lists the topics from before teams", async () => {
+  build();
+  const legacy = await newThread();
+  db.insert(teamRows)
+    .values({
+      createdAt: START,
+      id: "everyone-w1",
+      name: "Everyone",
+      slug: "everyone",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const current = await newThread();
+  const other = seedTeam({ members: { users: [user.userId] } });
+  await topicIn(other);
+
+  const room = await inbox.listThreads(user, { teamId: "everyone-w1" });
+  expect(new Set(room.map((thread) => thread.id))).toEqual(
+    new Set([legacy, current])
+  );
 });

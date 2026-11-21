@@ -421,6 +421,16 @@ describe("howItGotHere", () => {
     ]);
   });
 
+  test("names the lead who proposed a change, not the agent it changes", () => {
+    expect(howItGotHere(card({ proposedBy: "Lead Ana" }), formatAt)).toEqual([
+      "Lead Ana proposed this at 09:00.",
+      "Now: Waiting for an answer.",
+    ]);
+    expect(deskCardOf(card({ proposedBy: "Lead Ana" })).startedBy).toBe(
+      "Lead Ana"
+    );
+  });
+
   test("says an email started a mail card", () => {
     expect(howItGotHere(card({ kind: "approval", mail }), formatAt)[0]).toBe(
       "An email started this at 09:00."

@@ -17,12 +17,21 @@ const sourceFiles = async (source: string): Promise<string[]> =>
     .filter((path) => IN_SRC.test(path) && !SKIPPED.test(path))
     .map((path) => resolve(ROOT, source, path));
 
-test("only the memory service calls the library's memory write", async () => {
-  const files = (await Promise.all(SOURCES.map(sourceFiles))).flat();
-  const texts = await Promise.all(files.map((file) => readFile(file, "utf8")));
-  const users = files
-    .filter((_, index) => texts[index]?.includes("writeMemoryFiles"))
-    .map((file) => relative(ROOT, file));
+// Reads every source file, which outlasts bun's 5s default on a loaded machine.
+const SOURCE_SCAN_TIMEOUT_MS = 60_000;
 
-  expect(users.sort()).toEqual(ALLOWED);
-});
+test(
+  "only the memory service calls the library's memory write",
+  async () => {
+    const files = (await Promise.all(SOURCES.map(sourceFiles))).flat();
+    const texts = await Promise.all(
+      files.map((file) => readFile(file, "utf8"))
+    );
+    const users = files
+      .filter((_, index) => texts[index]?.includes("writeMemoryFiles"))
+      .map((file) => relative(ROOT, file));
+
+    expect(users.sort()).toEqual(ALLOWED);
+  },
+  SOURCE_SCAN_TIMEOUT_MS
+);

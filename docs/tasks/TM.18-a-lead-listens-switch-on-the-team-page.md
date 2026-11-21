@@ -3,9 +3,9 @@ id: TM.18
 title: "A lead listens switch on the team page"
 milestone: TM
 size: S
-status: in_progress
+status: done
 depends_on: []
-branch: null
+branch: task/TM.18-a-lead-listens-switch-on-the-team-page
 lane: web-team
 executor: claude
 ---
@@ -27,3 +27,5 @@ First confirm the setting can't be changed from the page. If so, add a switch un
 ## Log
 - 2026-11-21: added by controller.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 124b5128, review clean with no fix rounds, browser proof passed. One full test run hit the known exports.test.ts load timeout (FX.4).
+- 2026-11-21: merged 65f29555, merge check passed. Done.

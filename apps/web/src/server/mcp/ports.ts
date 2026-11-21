@@ -461,10 +461,19 @@ export const createMcpPorts = ({
             toRunInfo(await services.runs.getRun(principal, runId))
           ),
 
+    // A lead in its team room lists that room's topics, not the workspace's.
     inboxList: () =>
-      guarded(async () =>
-        (await services.inbox.listThreads(principal)).map(toThreadInfo)
-      ),
+      guarded(async () => {
+        const room =
+          principal.kind === "run"
+            ? await services.teamLead.roomRun(principal)
+            : null;
+        const threads = await services.inbox.listThreads(
+          principal,
+          room ? { teamId: room.teamId } : undefined
+        );
+        return threads.map(toThreadInfo);
+      }),
 
     inboxPost: ({ text, threadId }) =>
       guarded(async () => {

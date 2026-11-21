@@ -14,6 +14,8 @@ import {
   mailApprovalFields,
   offersAlwaysAllow,
   questionAnswer,
+  type RequestView,
+  requestHeading,
   type Settled,
   settledFromEvent,
   settledLine,
@@ -730,6 +732,46 @@ describe("team proposal", () => {
 
   test("never offers Always allow", () => {
     expect(offersAlwaysAllow(display("team_propose_change"))).toBe(false);
+  });
+
+  const view = (toolName: string): RequestView => ({
+    anchorId: null,
+    display: display(toolName),
+    expiresAt: at(30 * MIN),
+    id: "req_1",
+    kind: "approval",
+    runId: "run_1",
+    settled: null,
+  });
+
+  test("the room heading names the lead for a proposal and the agent otherwise", () => {
+    expect(requestHeading(view("team_propose_change"), "Writer Bo")).toBe(
+      "Lead Ann needs you"
+    );
+    expect(requestHeading(view("mail_send"), "Writer Bo")).toBe(
+      "Writer Bo needs you"
+    );
+  });
+
+  test("a settled proposal reads Approved or Rejected, a plain approval Allowed once or Denied", () => {
+    const answered = (decision: "allow_once" | "deny") => ({
+      answer: { decision },
+      answeredBy: "user-1",
+      status: "answered" as const,
+      via: "web" as const,
+    });
+    expect(settledLine("approval", answered("allow_once"), "Dom", true)).toBe(
+      "Approved by Dom in the web app"
+    );
+    expect(settledLine("approval", answered("deny"), "Dom", true)).toBe(
+      "Rejected by Dom in the web app"
+    );
+    expect(settledLine("approval", answered("allow_once"), "Dom")).toBe(
+      "Allowed once by Dom in the web app"
+    );
+    expect(settledLine("approval", answered("deny"), "Dom")).toBe(
+      "Denied by Dom in the web app"
+    );
   });
 
   test("reads the member's current value, and default for an unset setting", () => {

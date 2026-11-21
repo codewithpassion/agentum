@@ -743,7 +743,13 @@ export function RequestCard({
           view.settled,
           settledAt,
           cancelledByEdit,
-          settledLine(view.kind, view.settled, answeredBy(view.settled, user)),
+          settledLine(
+            view.kind,
+            view.settled,
+            answeredBy(view.settled, user),
+            view.kind === "approval" &&
+              teamProposalFields(view.display) !== null
+          ),
           viewer
         )}
       </p>
