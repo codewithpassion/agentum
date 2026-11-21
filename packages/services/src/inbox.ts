@@ -158,6 +158,8 @@ export interface PostRecord {
   createdAt: string;
   /** Empty when the post's run is hidden from the reader. */
   fileIds: string[];
+  /** The Slack profile name of a guest's post, or null for every other post. */
+  guestName: string | null;
   id: string;
   /** Set on an agent's post: the run that wrote it. Null when the reader may not see that run. */
   runId: string | null;
@@ -196,6 +198,8 @@ export interface ExternalPostInput {
   alongside: (ids: { postId: string; threadId: string }) => Statement[];
   /** Who wrote it. Stored as a person, so the id must never be a Clerk user id the sender does not hold. */
   authorId: string;
+  /** Set when the author is a Slack guest: the name the post is shown with. Leave out for a team member. */
+  guestName?: string;
   teamId: string;
   text: string;
   /** An existing topic of the team, or the title of a new one. */
@@ -264,6 +268,7 @@ const toPost = (row: PostRow, links: PostLinks): PostRecord => ({
   authorKind: row.authorKind,
   createdAt: row.createdAt,
   fileIds: links.fileIds,
+  guestName: row.guestName,
   id: row.id,
   runId: links.runId,
   text: row.text,
@@ -669,6 +674,7 @@ export const createInboxService = ({
       authorKind: author.kind,
       createdAt: now.toISOString(),
       fileIds: JSON.stringify(body.fileIds),
+      guestName: null,
       id: nextId(now.getTime()),
       runId: origin ? origin.runId : null,
       text: body.text,
@@ -722,6 +728,9 @@ export const createInboxService = ({
                     ),
                     createdAt: sql<string>`${row.createdAt}`.as("createdAt"),
                     fileIds: sql<string>`${row.fileIds}`.as("fileIds"),
+                    guestName: sql<string | null>`${row.guestName}`.as(
+                      "guestName"
+                    ),
                     id: sql<string>`${row.id}`.as("id"),
                     runId: sql<string>`${row.runId}`.as("runId"),
                     text: sql<string>`${row.text}`.as("text"),
@@ -1341,12 +1350,15 @@ export const createInboxService = ({
       }
       thread = found;
     }
-    const row = postRow(
-      thread,
-      { id: input.authorId, kind: "user" },
-      { fileIds: [], text: input.text },
-      null
-    );
+    const row: PostRow = {
+      ...postRow(
+        thread,
+        { id: input.authorId, kind: "user" },
+        { fileIds: [], text: input.text },
+        null
+      ),
+      guestName: input.guestName ?? null,
+    };
     statements.push(
       db.insert(inboxPosts).values(row),
       db

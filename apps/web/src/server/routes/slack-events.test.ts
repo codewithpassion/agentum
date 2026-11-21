@@ -1752,7 +1752,8 @@ test("an unknown Slack user posts as a named guest and wakes nobody", async () =
     {
       authorId: `slack:T0TEAM:${STRANGER}`,
       authorKind: "user",
-      text: "Newcomer (Slack guest): @ada please help",
+      guestName: "Newcomer",
+      text: "@ada please help",
     },
   ]);
   expect(allRuns()).toEqual([]);
@@ -1874,7 +1875,8 @@ test("a Slack Connect user from another organisation is not linked by email", as
   expect(roomPosts()).toMatchObject([
     {
       authorId: "slack:T0TEAM:U0NEW",
-      text: "Newcomer (Slack guest): hi from outside",
+      guestName: "Newcomer",
+      text: "hi from outside",
     },
   ]);
   expect(allRuns()).toEqual([]);
@@ -1899,7 +1901,11 @@ test("a linked person who is not in the team posts as a guest", async () => {
   await runAfterJobs();
 
   expect(roomPosts()).toMatchObject([
-    { authorId: "slack:T0TEAM:U0OUT", text: "Newcomer (Slack guest): hello" },
+    {
+      authorId: "slack:T0TEAM:U0OUT",
+      guestName: "Newcomer",
+      text: "hello",
+    },
   ]);
   expect(allRuns()).toEqual([]);
 });

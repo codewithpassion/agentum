@@ -42,6 +42,7 @@ const post: PostRecord = {
   authorKind: "agent",
   createdAt: "2026-11-01T10:06:00.000Z",
   fileIds: [],
+  guestName: null,
   id: "post_1",
   runId: "run_1",
   text: "Hello team",

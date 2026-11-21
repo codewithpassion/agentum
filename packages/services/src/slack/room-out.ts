@@ -45,8 +45,6 @@ import {
 } from "./room-out-store.ts";
 import { cutForSlack, speakerLine } from "./room-out-text.ts";
 
-/** An author id that starts like this is a Slack guest, whose post came from Slack. */
-const GUEST_PREFIX = "slack:";
 const NO_APP = "no_app";
 const UNREADABLE_TOKEN = "token_unreadable";
 
@@ -186,7 +184,7 @@ export const createRoomOutbound = ({
       .limit(1);
     if (
       !post ||
-      post.authorId.startsWith(GUEST_PREFIX) ||
+      post.guestName !== null ||
       (await roomMessageOfPost(db, post.id))
     ) {
       return;
