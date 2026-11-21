@@ -98,7 +98,7 @@ const decodeEntities = (text: string): string =>
 
 const readToken = (token: string, names: SlackNames): string => {
   const [target = "", ...labelParts] = token.split("|");
-  const label = labelParts.join("|");
+  const label = decodeEntities(labelParts.join("|"));
   const first = target.charAt(0);
   const id = target.slice(1);
   if (first === "@") {
@@ -114,11 +114,12 @@ const readToken = (token: string, names: SlackNames): string => {
   if (!SCHEME.test(target)) {
     return `<${token}>`;
   }
-  const shown = target.replace(MAILTO, "");
-  if (label === "" || label === target || label === shown) {
+  const url = decodeEntities(target);
+  const shown = url.replace(MAILTO, "");
+  if (label === "" || label === url || label === shown) {
     return shown;
   }
-  return MAILTO.test(target) ? `${label} (${shown})` : `[${label}](${target})`;
+  return MAILTO.test(url) ? `${label} (${shown})` : `[${label}](${url})`;
 };
 
 /**

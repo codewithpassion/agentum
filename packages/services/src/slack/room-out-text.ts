@@ -59,7 +59,7 @@ const FENCE_OR_CODE = /(```[\s\S]*?```|`[^`\n]+`)/;
 const BULLET = /^([ \t]*)[-*+] +/gm;
 const HEADING = /^#{1,6} +(.+?) *#*$/gm;
 const QUOTE = /^&gt;/gm;
-const LINK = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
+const LINK = /\[([^\]\n]+)\]\((https?:\/\/[^\s)|]+)\)/g;
 const ITALIC = /(?<![*\w])\*(?![\s*])([^*\n]+?)(?<![\s*])\*(?![*\w])/g;
 const BOLD = /\*\*(?=\S)(.+?)(?<=\S)\*\*|__(?=\S)(.+?)(?<=\S)__/g;
 const STRIKE = /~~(?=\S)(.+?)(?<=\S)~~/g;

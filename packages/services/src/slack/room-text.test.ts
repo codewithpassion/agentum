@@ -149,5 +149,11 @@ test("readSlackMarkup reads links and broadcasts", () => {
 test("readSlackMarkup decodes entities outside the markup", () => {
   expect(
     readSlackMarkup("a &amp; b &lt;c&gt; <https://x.io?a=1&amp;b=2>")
-  ).toBe("a & b <c> https://x.io?a=1&amp;b=2");
+  ).toBe("a & b <c> https://x.io?a=1&b=2");
+});
+
+test("readSlackMarkup decodes entities inside links and labels", () => {
+  expect(
+    readSlackMarkup("<https://x.io?a=1&amp;b=2|a &amp; b> <@U1|a&amp;b>")
+  ).toBe("[a & b](https://x.io?a=1&b=2) @a&b");
 });
