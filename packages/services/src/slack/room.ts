@@ -61,7 +61,7 @@ import {
 } from "./room-store.ts";
 import {
   convertAgentMentions,
-  guestPostText,
+  guestName,
   slackMentionedUserIds,
   topicTitle,
 } from "./room-text.ts";
@@ -354,8 +354,9 @@ export const createRoomIntake = ({
     const posted = await inbox.postExternal({
       alongside: pairing(app, message, isReply, guestReason !== null),
       authorId: from.id,
+      ...(from.person ? {} : { guestName: guestName(from.name) }),
       teamId,
-      text: from.person ? text : guestPostText(from.name, text),
+      text,
       thread: await topicFor(app, message, teamId, isReply, text),
       waker: from.person
         ? {

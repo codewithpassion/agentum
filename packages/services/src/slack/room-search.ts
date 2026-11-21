@@ -24,9 +24,6 @@ const WHITESPACE = /\s+/;
 const SEARCH_WORDS_MAX = 8;
 
 const AGENT_KIND = "agent";
-const GUEST_AUTHOR_PREFIX = "slack:";
-/** Between a guest's name and the post text, as `guestPostText` writes them. */
-const GUEST_SEPARATOR = " (Slack guest): ";
 const GUEST_LABEL_SUFFIX = " (Slack guest)";
 
 export interface RoomSearchInput {
@@ -59,24 +56,15 @@ const linkedEmail = sql<
   string | null
 >`(select ${identityLinks.email} from ${identityLinks} where ${identityLinks.workspaceId} = ${slackRoomMessages.workspaceId} and ${identityLinks.provider} = 'slack' and ${identityLinks.teamId} = ${slackRoomMessages.slackTeamId} and ${identityLinks.clerkUserId} = ${inboxPosts.authorId} limit 1)`;
 
-const isGuestPost = sql`(${inboxPosts.authorKind} = 'user' and substr(${inboxPosts.authorId}, 1, ${GUEST_AUTHOR_PREFIX.length}) = ${GUEST_AUTHOR_PREFIX})`;
-
 /**
  * The name a post is shown with, as `slackUserId`: the agent's name, a guest's
- * label with " (Slack guest)", the linked email, or else the author id. The
- * guest label is the text before the first separator, the same split the
- * text is cut at below.
+ * name with " (Slack guest)", the linked email, or else the author id.
  */
 const shownName = sql<string>`(case
   when ${inboxPosts.authorKind} = ${AGENT_KIND} then ${agents.name}
-  when ${isGuestPost} then substr(${inboxPosts.text}, 1, instr(${inboxPosts.text}, ${GUEST_SEPARATOR}) - 1) || ${GUEST_LABEL_SUFFIX}
+  when ${inboxPosts.guestName} is not null then ${inboxPosts.guestName} || ${GUEST_LABEL_SUFFIX}
   when ${linkedEmail} is not null then ${linkedEmail}
   else ${inboxPosts.authorId} end)`;
-
-/** The text a person wrote: a guest's post without its `<Name> (Slack guest): ` prefix, any other post as stored. */
-const bodyText = sql<string>`(case
-  when ${isGuestPost} and instr(${inboxPosts.text}, ${GUEST_SEPARATOR}) > 0 then substr(${inboxPosts.text}, instr(${inboxPosts.text}, ${GUEST_SEPARATOR}) + ${GUEST_SEPARATOR.length})
-  else ${inboxPosts.text} end)`;
 
 /**
  * Searches the room posts of one Slack team's linked channels. Only channels
@@ -111,7 +99,7 @@ export const searchRoomMessages = async (
   }
   for (const word of words) {
     conditions.push(
-      sql`${bodyText} LIKE ${`%${escapeLike(word)}%`} ESCAPE '\\'`
+      sql`${inboxPosts.text} LIKE ${`%${escapeLike(word)}%`} ESCAPE '\\'`
     );
   }
   if (input.person !== undefined) {
@@ -130,7 +118,7 @@ export const searchRoomMessages = async (
       clerkEmail: linkedEmail,
       createdAt: inboxPosts.createdAt,
       slackUserId: shownName,
-      text: bodyText,
+      text: inboxPosts.text,
       threadTs: slackRoomMessages.threadTs,
       ts: slackRoomMessages.ts,
     })

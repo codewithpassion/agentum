@@ -2,6 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import {
+  inboxPosts as inboxPostRows,
   inboxThreadMembers as inboxThreadMemberRows,
   inboxThreads as inboxThreadRows,
 } from "@repo/db/schema/inbox";
@@ -1566,6 +1567,47 @@ test("postExternal refuses an archived team", async () => {
     })
   ).rejects.toThrow("Team not found");
   expect(db.select().from(inboxThreadRows).all()).toHaveLength(0);
+});
+
+test("postExternal stores a guest's name beside the text, and nothing for a member", async () => {
+  build();
+  const teamId = seedTeam({ members: { users: ["u1"] } });
+  const input = {
+    alongside: () => [],
+    teamId,
+    thread: { kind: "new", title: "Slack" } as const,
+    waker: null,
+    workspaceId: WORKSPACE,
+  };
+
+  const guest = await inbox.postExternal({
+    ...input,
+    authorId: "slack:T1:U9",
+    guestName: "Priya",
+    text: "can we move the call?",
+  });
+  const member = await inbox.postExternal({
+    ...input,
+    authorId: "u1",
+    text: "yes",
+  });
+
+  const stored = db
+    .select({
+      guestName: inboxPostRows.guestName,
+      id: inboxPostRows.id,
+      text: inboxPostRows.text,
+    })
+    .from(inboxPostRows)
+    .all();
+  expect(stored).toEqual(
+    expect.arrayContaining([
+      { guestName: "Priya", id: guest.postId, text: "can we move the call?" },
+      { guestName: null, id: member.postId, text: "yes" },
+    ])
+  );
+  const view = await inbox.readThread(user, { threadId: guest.threadId });
+  expect(view.posts.map((post) => post.guestName)).toEqual(["Priya"]);
 });
 
 test("a discussion running when the team is archived starts no more runs", async () => {

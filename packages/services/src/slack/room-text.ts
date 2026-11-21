@@ -69,10 +69,7 @@ export const convertAgentMentions = (
     return slug === undefined ? mention : `@${slug}`;
   });
 
-/** The line that posts a message from a Slack guest into a room. */
-export const guestPostText = (name: string, text: string): string => {
-  const label =
-    cutToLength(collapseWhitespace(name), GUEST_LABEL_MAX).trimEnd() ||
-    FALLBACK_GUEST_LABEL;
-  return `${label} (Slack guest): ${text}`;
-};
+/** The name a Slack guest's post is shown with: their profile name, trimmed to a line, or "Someone". */
+export const guestName = (name: string): string =>
+  cutToLength(collapseWhitespace(name), GUEST_LABEL_MAX).trimEnd() ||
+  FALLBACK_GUEST_LABEL;

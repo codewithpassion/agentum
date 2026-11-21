@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   convertAgentMentions,
-  guestPostText,
+  guestName,
   slackMentionedUserIds,
   TOPIC_TITLE_MAX,
   topicTitle,
@@ -110,24 +110,15 @@ test("convertAgentMentions leaves text alone when nothing is mapped", () => {
   );
 });
 
-test("guestPostText labels the post with the guest name", () => {
-  expect(guestPostText("Ann Lee", "hello")).toBe(
-    "Ann Lee (Slack guest): hello"
-  );
+test("guestName collapses and trims the guest name", () => {
+  expect(guestName("  Ann \n  Lee  ")).toBe("Ann Lee");
 });
 
-test("guestPostText collapses and trims the guest name", () => {
-  expect(guestPostText("  Ann \n  Lee  ", "hi")).toBe(
-    "Ann Lee (Slack guest): hi"
-  );
+test("guestName cuts a long guest name to 80 characters", () => {
+  expect(guestName("n".repeat(100))).toBe("n".repeat(80));
 });
 
-test("guestPostText cuts a long guest name to 80 characters", () => {
-  const label = guestPostText("n".repeat(100), "hi");
-  expect(label).toBe(`${"n".repeat(80)} (Slack guest): hi`);
-});
-
-test("guestPostText falls back to Someone for an empty name", () => {
-  expect(guestPostText("   ", "hi")).toBe("Someone (Slack guest): hi");
-  expect(guestPostText("", "hi")).toBe("Someone (Slack guest): hi");
+test("guestName falls back to Someone for an empty name", () => {
+  expect(guestName("   ")).toBe("Someone");
+  expect(guestName("")).toBe("Someone");
 });

@@ -135,6 +135,7 @@ export const collectRoomPosts = async (
       authorId: inboxPosts.authorId,
       authorKind: inboxPosts.authorKind,
       createdAt: inboxPosts.createdAt,
+      guestName: inboxPosts.guestName,
       id: inboxPosts.id,
       text: inboxPosts.text,
     })
@@ -199,7 +200,10 @@ export const collectRoomPosts = async (
     }
     used += text.length;
     posts.push({
-      author: names.get(`${row.authorKind}:${row.authorId}`) ?? "A person",
+      author:
+        row.guestName === null
+          ? (names.get(`${row.authorKind}:${row.authorId}`) ?? "A person")
+          : `${row.guestName} (Slack guest)`,
       authorKind: row.authorKind,
       createdAt: row.createdAt,
       id: row.id,

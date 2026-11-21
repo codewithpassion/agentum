@@ -575,6 +575,7 @@ export const createDiscussionRounds = ({
             authorKind: sql`'agent'`.as("authorKind"),
             createdAt: sql<string>`${entry.createdAt}`.as("createdAt"),
             fileIds: sql<string>`'[]'`.as("fileIds"),
+            guestName: sql<string | null>`null`.as("guestName"),
             id: sql<string>`${entry.id}`.as("id"),
             runId: sql<string>`${entry.runId}`.as("runId"),
             text: sql<string>`${entry.text}`.as("text"),

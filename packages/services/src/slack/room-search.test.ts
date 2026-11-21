@@ -47,6 +47,8 @@ interface PostSeed {
   authorId: string;
   authorKind: "agent" | "user";
   channelId: string;
+  /** Set on a Slack guest's post: the name it is shown with. */
+  guestName?: string;
   minute: number;
   /** The team of the topic. Defaults to the team the channel is linked to. */
   teamId?: string;
@@ -81,6 +83,7 @@ const seedPost = (seed: PostSeed) => {
       authorId: seed.authorId,
       authorKind: seed.authorKind,
       createdAt: at(seed.minute),
+      guestName: seed.guestName ?? null,
       id: postId,
       text: seed.text,
       threadId,
@@ -221,13 +224,14 @@ const search = (input: Partial<Parameters<typeof searchRoomMessages>[1]>) =>
     ...input,
   });
 
-test("finds an in message from a guest, with the guest name and the prefix stripped", async () => {
+test("finds an in message from a guest, with the guest name", async () => {
   seedPost({
     authorId: "slack:T0SLACK:U0GUEST",
     authorKind: "user",
     channelId: ROOM_CHANNEL,
+    guestName: "Gina Guest",
     minute: 1,
-    text: "Gina Guest (Slack guest): deploy the worker tonight",
+    text: "deploy the worker tonight",
     threadTs: null,
     ts: "1700000001.000100",
   });
@@ -505,16 +509,18 @@ test("a post of an earlier team's topic is not found once the channel is linked 
     authorId: "slack:T0SLACK:U0GUEST",
     authorKind: "user",
     channelId: ROOM_CHANNEL,
+    guestName: "Gina Guest",
     minute: 1,
     teamId: OTHER_TEAM,
-    text: "Gina Guest (Slack guest): deploy the old secret plan",
+    text: "deploy the old secret plan",
   });
   seedPost({
     authorId: "slack:T0SLACK:U0GUEST",
     authorKind: "user",
     channelId: ROOM_CHANNEL,
+    guestName: "Gina Guest",
     minute: 2,
-    text: "Gina Guest (Slack guest): deploy the new plan",
+    text: "deploy the new plan",
   });
 
   const hits = await search({ query: "deploy" });
@@ -527,8 +533,9 @@ test("a word of a guest's label does not match the guest's post", async () => {
     authorId: "slack:T0SLACK:U0GUEST",
     authorKind: "user",
     channelId: ROOM_CHANNEL,
+    guestName: "Gina Guest",
     minute: 1,
-    text: "Gina Guest (Slack guest): deploy the worker tonight",
+    text: "deploy the worker tonight",
   });
 
   expect(await search({ query: "guest" })).toEqual([]);

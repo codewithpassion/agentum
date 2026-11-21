@@ -67,6 +67,9 @@ export const inboxPosts = sqliteTable(
     createdAt: createdAt(),
     // JSON array of file ids the run produced.
     fileIds: text("file_ids").notNull().default("[]"),
+    // The Slack profile name of a guest, who posts as author kind "user" with a
+    // `slack:` author id. NULL on every other post.
+    guestName: text("guest_name"),
     // ULID from a monotonic factory, so the id orders the thread.
     id: id(),
     runId: text("run_id").references(() => runs.id),
