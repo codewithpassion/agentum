@@ -1267,6 +1267,36 @@ test("an A2A message on the rail carries its A2A detail and never expires", asyn
   });
 });
 
+test("a lead's proposal reads as a proposal from the lead, a plain approval as a tool ask", async () => {
+  await setOwners(a1, "u1");
+  const runId = await seed({ agentId: a1, status: "waiting" });
+  const proposal = await requests.open(system, {
+    input: {
+      agentId: a1,
+      agentName: "Alpha",
+      field: "effort",
+      leadName: "Lead Ana",
+      reason: "Drafts run long",
+      value: "low",
+    },
+    kind: "approval",
+    runId,
+    toolKey: "team_propose_change",
+    toolName: "team_propose_change",
+    toolUseId: "team:1",
+  });
+  await waitingOnApproval(a2);
+
+  const cards = (await view("everyone")).needsYou.flatMap((item) => item.cards);
+  expect(cards.find((card) => card.id === proposal.id)).toMatchObject({
+    proposedBy: "Lead Ana",
+    title: "Lead Ana proposes a change to Alpha",
+  });
+  const plain = cards.find((card) => card.id !== proposal.id);
+  expect(plain?.title).toBe("Beta asks before bash");
+  expect(plain).not.toHaveProperty("proposedBy");
+});
+
 const rosterList = (principal = user()) =>
   createRosterService({ clock: { now: () => new Date(now) }, db, rail }).list(
     principal

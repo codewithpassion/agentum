@@ -239,7 +239,7 @@ export const deskCardOf = (card: RailCard): DeskCard => ({
   id: card.id,
   kind: deskKindOf(card.kind),
   lane: "needs_you",
-  startedBy: card.passedOnBy ?? card.agentName,
+  startedBy: card.passedOnBy ?? card.proposedBy ?? card.agentName,
   title: card.title,
   ...(card.kind === "problem" ? {} : { needsYouKind: card.kind }),
   ...(card.runId === null ? {} : { runId: card.runId }),
@@ -254,6 +254,12 @@ export const howItGotHere = (
   card: RailCard,
   formatAt: (iso: string) => string
 ): string[] => {
+  if (card.proposedBy !== undefined) {
+    return [
+      `${card.proposedBy} proposed this ${formatAt(card.at)}.`,
+      `Now: ${card.status}.`,
+    ];
+  }
   const starter =
     card.passedOnBy ??
     (card.mail === null ? card.agentName || "Someone" : "An email");
