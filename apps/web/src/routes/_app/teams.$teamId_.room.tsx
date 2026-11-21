@@ -53,6 +53,8 @@ function TeamRoomRoute() {
     <RoomPage
       agents={agents}
       handles={handles}
+      // The topic list is polled state seeded from this team's loader data, so another team must remount it.
+      key={team.id}
       onOpenTopic={openTopic}
       people={people}
       team={team}
