@@ -3,7 +3,7 @@ id: TM.18
 title: "A lead listens switch on the team page"
 milestone: TM
 size: S
-status: todo
+status: in_progress
 depends_on: []
 branch: null
 lane: web-team
@@ -26,3 +26,4 @@ First confirm the setting can't be changed from the page. If so, add a switch un
 
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.
