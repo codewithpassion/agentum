@@ -17,6 +17,7 @@ import {
   type DictationService,
 } from "@repo/services/dictation";
 import { createDreamService, type DreamService } from "@repo/services/dream";
+import { dreamModelDeps } from "@repo/services/dream/scripted-model";
 import { roomDigestOf } from "@repo/services/dream/team/digest";
 import {
   type AppWorkerExports,
@@ -1485,10 +1486,14 @@ export const composeWith = ({
         clock: infra.clock,
         db,
         events,
-        fetch: connectorFetch,
         inbox,
         library,
-        managedKeys,
+        // A dev build answers the dream from a script and needs no key.
+        ...dreamModelDeps({
+          devFakeRuntime: infra.devFakeRuntime,
+          fetch: connectorFetch,
+          managedKeys,
+        }),
         memory,
         skillsStore,
         spend,

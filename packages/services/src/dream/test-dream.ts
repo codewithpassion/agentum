@@ -22,6 +22,7 @@ import {
 import type { Clock } from "../runs/types.ts";
 import { memorySkillBlobs } from "../skills-store/memory.ts";
 import { createSkillsStoreService } from "../skills-store.ts";
+import { type CallKind, kindOf } from "./scripted-model.ts";
 
 export const SESSION = { ...BASE_SESSION, shared: "s_shared" } as const;
 export const RUN = { ...BASE_RUN, shared: "r_shared" } as const;
@@ -34,17 +35,6 @@ export const defined = <T>(value: T | undefined): T => {
   return value;
 };
 
-export type CallKind =
-  | "condense"
-  | "extract"
-  | "finished"
-  | "promote"
-  | "merge"
-  | "reconcile"
-  | "team_digest"
-  | "team_friction"
-  | "team_notes";
-
 export interface Call {
   kind: CallKind;
   prompt: string;
@@ -52,37 +42,6 @@ export interface Call {
 
 /** What the fake model answers for one call. `null` is a failed request. */
 export type Script = (call: Call) => string | null | Promise<string | null>;
-
-const kindOf = (system: string): CallKind => {
-  if (system.includes("team-memory judge")) {
-    return "team_notes";
-  }
-  if (system.includes("hand-off judge")) {
-    return "team_friction";
-  }
-  if (system.includes("room digest for a team")) {
-    return "team_digest";
-  }
-  if (system.includes("procedure-promotion judge")) {
-    return "promote";
-  }
-  if (system.includes("memory of an AI agent")) {
-    return "extract";
-  }
-  if (system.includes("more characters than the memory budget")) {
-    return "condense";
-  }
-  if (system.includes("consolidation judge")) {
-    return "merge";
-  }
-  if (system.includes("conflict judge")) {
-    return "reconcile";
-  }
-  if (system.includes("hygiene judge") && system.includes("finished")) {
-    return "finished";
-  }
-  return "condense";
-};
 
 /** The default answer: nothing to keep, merge, settle or prune. */
 export const quiet: Script = ({ kind }) => {
