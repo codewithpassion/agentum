@@ -1843,6 +1843,22 @@ test("a guest whose Slack email is hidden is told to make it visible", async () 
   expect(roomEphemerals()[0]?.body.text).toBe(HIDDEN_EMAIL_TEXT);
 });
 
+test("a Slack Connect user with a hidden email gets no reply either", async () => {
+  await setupRoom();
+  slackUserTeam = "T0OTHER";
+  slackEmail = null;
+
+  await sendToAllApps({
+    text: "hi from outside",
+    ts: ROOM_FIRST_TS,
+    user: STRANGER,
+  });
+  await runAfterJobs();
+
+  expect(roomPosts()).toMatchObject([{ authorId: `slack:T0TEAM:${STRANGER}` }]);
+  expect(roomEphemerals()).toEqual([]);
+});
+
 test("a Slack Connect user from another organisation is not linked by email", async () => {
   await setupRoom();
   await addNewcomerToTeam();

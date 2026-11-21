@@ -260,11 +260,13 @@ export const createSlackService = ({
     }
     const client = createSlackClient({ fetch: slackFetch, token });
     const lookup = await client.userEmail(slackUserId);
+    // The team comes first: an outside user is skipped whatever their email
+    // shows, and a failed lookup cannot say whose user this is.
+    if (ownTeamOnly && (lookup.kind !== "ok" || lookup.teamId !== app.teamId)) {
+      return { kind: "external" };
+    }
     if (lookup.kind !== "ok" || lookup.email === null) {
       return { kind: "none", reason: "hidden_email" };
-    }
-    if (ownTeamOnly && lookup.teamId !== app.teamId) {
-      return { kind: "external" };
     }
     const { email } = lookup;
     const clerkUserId = await directory.findUserIdByEmail(email);
