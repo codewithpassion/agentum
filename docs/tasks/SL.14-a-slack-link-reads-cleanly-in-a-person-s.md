@@ -3,7 +3,7 @@ id: SL.14
 title: "A Slack link reads cleanly in a person's post"
 milestone: SL
 size: S
-status: ready
+status: done
 depends_on: []
 branch: task/SL.14-a-slack-link-reads-cleanly-in-a-person-s
 lane: slack
@@ -26,3 +26,4 @@ From the end-of-v4 browser pass (`docs/reviews/v4-browser-pass.md`, SL.8 fail). 
 - 2026-11-21: added by controller from the end-of-v4 browser pass.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at 0e2f7833, review clean with no fix rounds.
+- 2026-11-21: merged 28a74edd, merge check passed. Done. The browser re-check comes with the next deploy.
