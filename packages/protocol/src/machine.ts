@@ -263,6 +263,8 @@ export const claimResponseSchema = z.strictObject({
     runtimeMachineId: z.string().nullable(),
     runtimeRef: z.string().nullable(),
   }),
+  // A lead's run in its team room. The client starts Claude Code with only read tools and the Agentum MCP server.
+  teamRoom: z.literal(true).optional(),
   toolRules: z.array(z.string()).optional(),
 });
 export type ClaimResponse = z.infer<typeof claimResponseSchema>;

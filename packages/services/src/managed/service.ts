@@ -790,7 +790,10 @@ export const createManagedService = ({
         anthropicAgentId,
         effort,
         model,
-        overrides: run.subagentLevel > 0 ? overrides : undefined,
+        overrides:
+          run.subagentLevel > 0 || overrides?.teamRoom === true
+            ? overrides
+            : undefined,
         text,
         title: agent.name,
         vaultIds: [vaultId],
@@ -1067,6 +1070,7 @@ export const createManagedService = ({
           mcpServers: servers,
           skills: refs,
           system,
+          teamRoom: context.teamRoom,
         },
         relayHost: grants.relayHost,
         run,

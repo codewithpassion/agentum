@@ -384,6 +384,7 @@ export const claimForMachine = async (
     runToken,
     ...currentApprovalClaim(options.currentApprovalsForDaemon),
     ...questionsLaterClaim(options),
+    ...teamRoomClaim(context.teamRoom),
     ...daemonRules(toolRules),
     session: {
       id: session.id,
@@ -408,6 +409,10 @@ const questionsLaterClaim = (options: {
   options.questionsLaterForDaemon === true && options.requestsForDaemon === true
     ? { questionsLater: true as const }
     : {};
+
+/** Only a lead's run in its team room, so every other claim has no `teamRoom` key. */
+const teamRoomClaim = (teamRoom: boolean) =>
+  teamRoom ? { teamRoom: true as const } : {};
 
 const supportsCurrentApprovals = (options: {
   currentApprovalsForDaemon?: boolean;
