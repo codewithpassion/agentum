@@ -3,7 +3,7 @@
 // server's /mcp route, because the fake runtime cannot call tools. It takes the
 // lead's newest team room run, marks it running for the call, mints a run token
 // with RUN_TOKEN_KEY from apps/web/.env.local, calls `team_propose_change` and
-// puts the run back as it was. `--tool <name> --args <json>` calls any other
+// puts the run back as it was, after a short pause (see RESTORE_DELAY_MS). `--tool <name> --args <json>` calls any other
 // tool of the lead's room run instead, for example `team_open_topic`. The owner then approves the card in the app.
 // It uses the lead's newest team room run in any topic, so the card lands in
 // that run's topic. Run from the repo root, after the lead has answered in its team room:
