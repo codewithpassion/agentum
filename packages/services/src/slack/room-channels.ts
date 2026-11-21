@@ -8,7 +8,7 @@ import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
 import { slackApps } from "@repo/db/schema/slack";
 import { teamMembers, teams } from "@repo/db/schema/teams";
-import type { TeamSlackChannels } from "@repo/db/shared";
+import type { TeamSlackChannel, TeamSlackChannels } from "@repo/db/shared";
 import { and, asc, eq } from "drizzle-orm";
 import { invalid } from "../errors.ts";
 import {
@@ -121,6 +121,34 @@ export const createRoomChannels = ({
     throw invalid(`Slack would not list the channels (${failure}).`);
   };
 
+  /** The channels a Slack user is in that the team's apps can see, private ones included. Throws `invalid` when no app could ask Slack. */
+  const personChannels = async (
+    workspaceId: string,
+    teamId: string,
+    slackTeamId: string,
+    slackUserId: string
+  ): Promise<TeamSlackChannel[]> => {
+    const apps = await roomApps(db, { slackTeamId, teamId, workspaceId });
+    let failure = "no_token";
+    for (const app of apps) {
+      // biome-ignore lint/performance/noAwaitInLoops: the apps are tried in order, the first answer wins
+      const client = await clientFor(app);
+      if (client === null) {
+        continue;
+      }
+      const result = await client.listChannels(slackUserId);
+      if (result.kind === "ok") {
+        return result.channels.map(({ id, isPrivate, name }) => ({
+          id,
+          isPrivate,
+          name,
+        }));
+      }
+      failure = "error" in result ? result.error : result.kind;
+    }
+    throw invalid(`Slack would not list your channels (${failure}).`);
+  };
+
   /** True when the lead's app (or, failing that, another member app) in the Slack workspace is a member of the channel. */
   const canPost = async (
     workspaceId: string,
@@ -165,7 +193,7 @@ export const createRoomChannels = ({
     return null;
   };
 
-  return { canPost, list, nameOf };
+  return { canPost, list, nameOf, personChannels };
 };
 
 export type RoomChannels = ReturnType<typeof createRoomChannels>;

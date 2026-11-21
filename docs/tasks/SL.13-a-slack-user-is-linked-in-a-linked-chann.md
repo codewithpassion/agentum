@@ -3,9 +3,9 @@ id: SL.13
 title: "A Slack user is linked in a linked channel too"
 milestone: SL
 size: S
-status: todo
+status: in_progress
 depends_on: [SL.10]
-branch: null
+branch: task/SL.13-a-slack-user-is-linked-in-a-linked-chann
 lane: slack
 executor: claude
 ---
@@ -26,3 +26,5 @@ From the SL gate review, round 1 (`docs/reviews/SL-1.md`, must-fix 4).
 - `bun run check && bun run test && bun run build` pass.
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.
+- 2026-11-21: dispatcher stopped at the account monthly spend limit (HTTP 429). Work is saved in its worktree. Resume the same dispatcher after the limit resets on Nov 25.

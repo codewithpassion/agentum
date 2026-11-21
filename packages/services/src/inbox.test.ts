@@ -18,7 +18,10 @@ import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { createEventsService } from "./events.ts";
 import { createInboxService, type InboxService } from "./inbox.ts";
-import { loadPrivateNotesUser } from "./library/private-notes.ts";
+import {
+  loadPrivateNotesUser,
+  privateNotesUserOf,
+} from "./library/private-notes.ts";
 import type { Clock, RuntimeAdapter } from "./runs/types.ts";
 import { createRunsService, type RunsService } from "./runs.ts";
 import { visibleSessions } from "./sessions.ts";
@@ -1080,6 +1083,49 @@ test("a post shows its run only to a reader who may see that run", async () => {
   expect(theirs[0]?.text).toBe("see my work");
   expect(theirs[0]?.fileIds).toEqual([]);
   expect(theirs[0]?.artifacts).toEqual([]);
+});
+
+test("a room run woken from a private ui run gets no private notes, nor does its reply hop", async () => {
+  build({ script: { alpha: null, beta: "reply in room @gamma", gamma: "ok" } });
+  await addAgents("alpha", "beta", "gamma");
+  const threadId = await newThread();
+  const started = await runs.startRun(user, {
+    agentId: agentId("alpha"),
+    input: { text: "private work" },
+    session: { externalKey: "chat-1", origin: "ui" },
+  });
+  await say(
+    threadId,
+    "@beta please look",
+    runPrincipal("alpha", started.runId)
+  );
+
+  const [betaRun] = runsOf("beta");
+  const [gammaRun] = runsOf("gamma");
+  if (!(betaRun && gammaRun)) {
+    throw new Error("Missing room runs");
+  }
+  for (const run of [betaRun, gammaRun]) {
+    const session = db
+      .select()
+      .from(sessionRows)
+      .all()
+      .find((row) => row.id === run.sessionId);
+    expect(session?.origin).toBe("inbox");
+    expect(session?.private).toBe(false);
+    // biome-ignore lint/performance/noAwaitInLoops: two runs, checked in turn
+    expect(await loadPrivateNotesUser(db, run)).toBeNull();
+  }
+});
+
+test("privateNotesUserOf gives an inbox session no notes even when it is stored private", () => {
+  const session = {
+    actorId: "u1",
+    actorKind: "user",
+    origin: "inbox",
+    private: true,
+  };
+  expect(privateNotesUserOf({ onBehalfOfUserId: "u1" }, session)).toBeNull();
 });
 
 test("a woken run in the shared inbox session is visible to every member", async () => {
