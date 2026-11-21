@@ -238,3 +238,79 @@ test("the composer shows the dictation button and a microphone choice", async ()
     await dom.happyDOM.close();
   }
 });
+
+const renderComposer = async (dom: Window) => {
+  const container = dom.document.createElement("div");
+  dom.document.body.append(container);
+  const { restore, root } = mount(dom, container as unknown as Element);
+  await act(async () =>
+    root.render(
+      <TooltipProvider>
+        <MentionComposer members={members} onSent={noop} threadId="t" />
+      </TooltipProvider>
+    )
+  );
+  const form = container.querySelector("form");
+  const textarea = container.querySelector("textarea");
+  if (form === null || textarea === null) {
+    throw new Error("the composer did not render");
+  }
+  const hint = container.querySelector("p");
+  const label = container.querySelector("label");
+  const actions = container.querySelector("button")?.parentElement;
+  return {
+    actions,
+    cleanup: async () => {
+      await act(async () => root.unmount());
+      restore();
+      await dom.happyDOM.close();
+    },
+    form,
+    hint,
+    label,
+    textarea,
+  };
+};
+
+test("on a phone the composer is one line until it gets focus", async () => {
+  const dom = new Window();
+  const { actions, cleanup, form, hint, label, textarea } =
+    await renderComposer(dom);
+  try {
+    expect(form.getAttribute("data-expanded")).toBe("false");
+    expect(textarea.className).toContain("max-md:min-h-10");
+    expect(label?.className).toContain("max-md:sr-only");
+    expect(hint?.className).toContain("max-md:hidden");
+    expect(actions?.className).toContain("max-md:hidden");
+
+    await act(async () => {
+      textarea.dispatchEvent(new dom.Event("focusin", { bubbles: true }));
+    });
+    expect(form.getAttribute("data-expanded")).toBe("true");
+    expect(textarea.className).not.toContain("max-md:min-h-10");
+    expect(label?.className).not.toContain("max-md:sr-only");
+    expect(hint?.className).not.toContain("max-md:hidden");
+    expect(actions?.className).not.toContain("max-md:hidden");
+
+    await act(async () => {
+      textarea.dispatchEvent(new dom.Event("focusout", { bubbles: true }));
+    });
+    expect(form.getAttribute("data-expanded")).toBe("false");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a composer holding text stays open after it loses focus", async () => {
+  const dom = new Window();
+  const { cleanup, form, textarea } = await renderComposer(dom);
+  try {
+    await typeText(dom, textarea, "draft");
+    await act(async () => {
+      textarea.dispatchEvent(new dom.Event("focusout", { bubbles: true }));
+    });
+    expect(form.getAttribute("data-expanded")).toBe("true");
+  } finally {
+    await cleanup();
+  }
+});
