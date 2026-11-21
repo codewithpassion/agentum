@@ -54,8 +54,10 @@ export interface SlackClient {
   ) => Promise<
     SlackCallResult<{ messages: HistoryMessage[]; nextCursor: string | null }>
   >;
-  /** Lists public and private channels the bot is a member of. Follows up to 5 pages. */
-  listChannels: () => Promise<SlackCallResult<{ channels: ChannelEntry[] }>>;
+  /** Lists public and private channels the bot is a member of, or, given a Slack user id, the ones that user is in too. Follows up to 5 pages. */
+  listChannels: (
+    userId?: string
+  ) => Promise<SlackCallResult<{ channels: ChannelEntry[] }>>;
   /** Opens (or finds) the DM between the bot and a user. */
   openDm: (userId: string) => Promise<SlackCallResult<{ channelId: string }>>;
   /** Opens a modal view for a user who clicked a button or ran a shortcut. `trigger_id` expires after about 3 seconds. */
@@ -392,7 +394,8 @@ export const createSlackClient = (deps: {
   async function listChannelPages(
     cursor: string,
     pagesLeft: number,
-    channels: ChannelEntry[]
+    channels: ChannelEntry[],
+    userId: string | undefined
   ): Promise<SlackCallResult<{ channels: ChannelEntry[] }>> {
     const query: Record<string, string> = {
       exclude_archived: "true",
@@ -401,6 +404,9 @@ export const createSlackClient = (deps: {
     };
     if (cursor !== "") {
       query.cursor = cursor;
+    }
+    if (userId !== undefined) {
+      query.user = userId;
     }
     const result = await callSlack(
       { method: "GET", url: apiUrl("users.conversations", query) },
@@ -413,7 +419,7 @@ export const createSlackClient = (deps: {
     if (result.nextCursor === "" || pagesLeft <= 1) {
       return { channels: all, kind: "ok" };
     }
-    return listChannelPages(result.nextCursor, pagesLeft - 1, all);
+    return listChannelPages(result.nextCursor, pagesLeft - 1, all, userId);
   }
 
   return {
@@ -513,8 +519,8 @@ export const createSlackClient = (deps: {
       );
     },
 
-    listChannels() {
-      return listChannelPages("", MAX_CHANNEL_PAGES, []);
+    listChannels(userId) {
+      return listChannelPages("", MAX_CHANNEL_PAGES, [], userId);
     },
 
     openDm(userId) {

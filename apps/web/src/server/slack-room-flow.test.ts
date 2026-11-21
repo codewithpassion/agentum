@@ -39,10 +39,12 @@ const ORG = "org_a";
 const SECRETS_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(5)));
 const SLACK_TEAM = "T0SL5E2E";
 const CHANNEL = "C0ROOMSL5";
+const SECOND_CHANNEL = "C0ROOMSL6";
 const OK = 200;
 const DOM = "user_dom";
 const DOM_SLACK = "U0DOM00001";
 const DOM_EMAIL = "dom@example.test";
+const OWNER_SLACK = "U0OWN00001";
 const GUEST_SLACK = "U0GUS00001";
 const GUEST_NAME = "Gus Guest";
 
@@ -166,12 +168,25 @@ beforeEach(async () => {
           id: CHANNEL,
           isPrivate: false,
           // Di's app has not been invited yet.
-          members: [DOM_SLACK, GUEST_SLACK, ADA.botUserId, CY.botUserId],
+          members: [
+            OWNER_SLACK,
+            DOM_SLACK,
+            GUEST_SLACK,
+            ADA.botUserId,
+            CY.botUserId,
+          ],
           name: "sl5-room",
+        },
+        {
+          id: SECOND_CHANNEL,
+          isPrivate: false,
+          members: [OWNER_SLACK, ADA.botUserId, CY.botUserId],
+          name: "sl5-second",
         },
       ],
       slackTeamId: SLACK_TEAM,
       users: [
+        { email: "owner@example.test", id: OWNER_SLACK, name: "Olive Owner" },
         { email: DOM_EMAIL, id: DOM_SLACK, name: "Dom Fretz" },
         { email: "gus@example.test", id: GUEST_SLACK, name: GUEST_NAME },
       ],
@@ -258,6 +273,16 @@ beforeEach(async () => {
     teamId,
   });
   await db.insert(identityLinks).values({
+    clerkUserId: owner.kind === "user" ? owner.userId : "",
+    createdAt: new Date().toISOString(),
+    email: "owner@example.test",
+    externalUserId: OWNER_SLACK,
+    id: "link_owner",
+    provider: "slack",
+    teamId: SLACK_TEAM,
+    workspaceId,
+  });
+  await db.insert(identityLinks).values({
     clerkUserId: DOM,
     createdAt: new Date().toISOString(),
     email: DOM_EMAIL,
@@ -284,16 +309,19 @@ const removeDi = () => {
   channel.members = channel.members.filter((member) => member !== DI.botUserId);
 };
 
-const link = () =>
+const link = (channelId = CHANNEL) =>
   composed.services.teams.slack.link(owner, {
-    channelId: CHANNEL,
+    channelId,
     slackTeamId: SLACK_TEAM,
     teamId,
   });
 
 test("linking: the lead's app must be in the channel, and status names the app that is not", async () => {
   const before = await composed.services.teams.slack.channels(owner, teamId);
-  expect(before.channels).toMatchObject([{ id: CHANNEL, name: "sl5-room" }]);
+  expect(before.channels).toMatchObject([
+    { id: CHANNEL, name: "sl5-room" },
+    { id: SECOND_CHANNEL, name: "sl5-second" },
+  ]);
 
   await link();
   const status = await composed.services.teams.slack.status(owner, teamId);
@@ -458,6 +486,56 @@ test("room to Slack: a person's post goes out through the lead's app with their 
   expect(
     slackPostsBy(ADA).some((message) => message.text.startsWith("*Di:*"))
   ).toBe(true);
+  expect(fake.deliveryErrors).toEqual([]);
+});
+
+test("after a relink to a second channel, a post in an old topic opens a new thread there and carries no thread_ts from the old one", async () => {
+  await link();
+  const first = fake.say({
+    channel: CHANNEL,
+    text: "Kickoff: plan the launch",
+    user: DOM_SLACK,
+  });
+  await settle();
+  const [topic] = topics();
+  if (!topic) {
+    throw new Error("no topic");
+  }
+  await composed.services.teams.slack.unlink(owner, teamId);
+  await link(SECOND_CHANNEL);
+
+  await composed.services.inbox.post(dom, {
+    text: "Moving over.",
+    threadId: topic.id,
+  });
+  await settle();
+
+  const moved = fake.messages.filter(
+    (message) => message.channel === SECOND_CHANNEL
+  );
+  const opener = moved.find((message) => message.text.includes("Moving over."));
+  expect(opener).toBeDefined();
+  expect(opener?.threadTs).toBeNull();
+  expect(moved.some((message) => message.threadTs === first.ts)).toBe(false);
+  expect(
+    fake.messages.filter(
+      (message) =>
+        message.channel === CHANNEL && message.text.includes("Moving over.")
+    )
+  ).toEqual([]);
+
+  // The next post joins the thread the new channel's first message opened.
+  await composed.services.inbox.post(dom, {
+    text: "Second note.",
+    threadId: topic.id,
+  });
+  await settle();
+  const second = fake.messages.find(
+    (message) =>
+      message.channel === SECOND_CHANNEL &&
+      message.text.includes("Second note.")
+  );
+  expect(second?.threadTs).toBe(opener?.ts);
   expect(fake.deliveryErrors).toEqual([]);
 });
 

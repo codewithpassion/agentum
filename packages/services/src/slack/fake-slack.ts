@@ -379,17 +379,25 @@ export const createFakeSlack = ({
     };
   };
 
-  const botChannels = ({ app }: Call): Reply => ({
-    channels: config.channels
-      .filter((channel) => channel.members.includes(app.botUserId))
-      .map((channel) => ({
-        id: channel.id,
-        is_private: channel.isPrivate,
-        name: channel.name,
-      })),
-    ok: true,
-    response_metadata: { next_cursor: "" },
-  });
+  /** The channels the bot is in; with `user`, only those that user is in too. */
+  const botChannels = ({ app, query }: Call): Reply => {
+    const user = query.get("user") ?? "";
+    return {
+      channels: config.channels
+        .filter(
+          (channel) =>
+            channel.members.includes(app.botUserId) &&
+            (user === "" || channel.members.includes(user))
+        )
+        .map((channel) => ({
+          id: channel.id,
+          is_private: channel.isPrivate,
+          name: channel.name,
+        })),
+      ok: true,
+      response_metadata: { next_cursor: "" },
+    };
+  };
 
   const handlers: Record<string, (call: Call) => Reply> = {
     "assistant.threads.setStatus": () => ({ ok: true }),
