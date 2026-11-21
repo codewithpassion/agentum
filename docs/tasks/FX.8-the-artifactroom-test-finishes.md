@@ -3,9 +3,9 @@ id: FX.8
 title: "The ArtifactRoom test finishes"
 milestone: FX
 size: S
-status: in_progress
+status: ready
 depends_on: []
-branch: null
+branch: task/FX.8-the-artifactroom-test-finishes
 lane: e2e-scripts
 executor: claude
 ---
@@ -27,3 +27,4 @@ FX.7 disabled the ArtifactRoom test in `apps/web/src/server/live-artifacts/room.
 ## Log
 - 2026-11-21: added by controller for the end-of-v4 test pass.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at f485c433, review clean after 1 fix round. The test passed alone 6 times in 52 to 68 s, so it is back on, with two guards that make a stuck run fail instead of hang.
