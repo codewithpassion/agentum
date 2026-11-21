@@ -3,13 +3,14 @@
 // server's /mcp route, because the fake runtime cannot call tools. It takes the
 // lead's newest team room run, marks it running for the call, mints a run token
 // with RUN_TOKEN_KEY from apps/web/.env.local, calls `team_propose_change` and
-// puts the run back as it was. `--tool <name> --args <json>` calls any other
+// puts the run back as it was, after a short pause (see RESTORE_DELAY_MS). `--tool <name> --args <json>` calls any other
 // tool of the lead's room run instead, for example `team_open_topic`. The owner then approves the card in the app.
 // It uses the lead's newest team room run in any topic, so the card lands in
 // that run's topic. Run from the repo root, after the lead has answered in its team room:
 // `bun scripts/dev/team-propose.ts --server http://localhost:3417 --lead <slug>
 //   --agent <memberAgentId> --field instructions --value "..." --reason "..."`.
 import { readFileSync } from "node:fs";
+import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import { importRunTokenKey, signRunToken } from "@repo/services/run-tokens";
 import {
@@ -22,6 +23,10 @@ import {
 } from "./local.ts";
 
 const LEASE_MS = 60_000;
+// The dev server finishes work after it answers (a Slack card, a wake). A write
+// from this script during that work makes the server's query fail with
+// "database is locked", so the run is put back only after this pause.
+const RESTORE_DELAY_MS = 8000;
 const KEY_LINE = /^RUN_TOKEN_KEY=(.+)$/m;
 
 interface RunRow {
@@ -109,6 +114,7 @@ const main = async (): Promise<void> => {
       });
       process.stdout.write(`${response.status} ${await response.text()}\n`);
     } finally {
+      await sleep(RESTORE_DELAY_MS);
       sqlite
         .query("UPDATE runs SET status = ?, lease_until = NULL WHERE id = ?")
         .run(run.status, run.id);
