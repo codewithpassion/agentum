@@ -3,9 +3,9 @@ id: TX.8
 title: "A refused hand-off wake is retried"
 milestone: TX
 size: S
-status: in_progress
+status: done
 depends_on: []
-branch: null
+branch: task/TX.8-a-refused-hand-off-wake-is-retried
 lane: services-inbox
 executor: claude
 ---
@@ -22,3 +22,5 @@ Check. A service test with a lead at its wake limit: the post exists, no run sta
 ## Log
 - 2026-11-21: added by controller from the TX walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 6a1574e4, review clean after 2 fix rounds. Browser step skipped under the new rule.
+- 2026-11-21: merged 4743f188, merge check passed. Done.

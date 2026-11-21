@@ -3,7 +3,7 @@ id: TX.9
 title: "A team dream question names the team"
 milestone: TX
 size: S
-status: ready
+status: done
 depends_on: []
 branch: task/TX.9-a-team-dream-question-names-the-team
 lane: services-desk
@@ -23,3 +23,4 @@ Check. A desk test with a team question, and the Needs you pane in the browser.
 - 2026-11-21: added by controller from the TX walkthrough.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at 42fa15f9, review clean. Browser step skipped under the new rule.
+- 2026-11-21: merged f952c3a6, merge check passed. Done.

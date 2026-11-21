@@ -24,6 +24,8 @@ import type { TeamInfo, TeamMember } from "./team.ts";
 
 /** The topic the team diary and the lead's hand-off requests are posted in. The dream never reads it back. */
 export const TEAM_DIARY_TOPIC = "Team diary";
+/** The first line of a hand-off request, which marks the post for a later retry of its wake. */
+export const HAND_OFF_HEADING = "Hand-off rework in the team room.";
 const SYSTEM_AUTHOR = "system";
 const POST_LIMIT = 200;
 /** The most room text one dream sends the model. The newest posts win. */
