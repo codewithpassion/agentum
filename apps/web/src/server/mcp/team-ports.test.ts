@@ -177,6 +177,7 @@ test("post passes the run and the text and topic, and returns the post without s
       authorId: "agent_lead",
       authorKind: "agent",
       createdAt: "2026-11-01T10:06:00.000Z",
+      guestName: null,
       id: "post_1",
       runId: "run_1",
       text: "Hello team",

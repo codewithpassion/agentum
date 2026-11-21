@@ -83,6 +83,7 @@ const toPostInfo = (post: PostRecord): PostInfo => ({
   authorId: post.authorId,
   authorKind: post.authorKind,
   createdAt: post.createdAt,
+  guestName: post.guestName,
   id: post.id,
   runId: post.runId,
   text: post.text,

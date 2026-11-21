@@ -19,7 +19,9 @@ const threadLine = (thread: ThreadInfo): string =>
 
 const postLine = (post: PostInfo): string => {
   const run = post.runId ? ` (run ${post.runId})` : "";
-  return `[${post.createdAt}] ${post.authorKind} ${post.authorId}${run}: ${post.text}`;
+  const guest =
+    post.guestName === null ? "" : ` (Slack guest ${post.guestName})`;
+  return `[${post.createdAt}] ${post.authorKind} ${post.authorId}${guest}${run}: ${post.text}`;
 };
 
 const startedText = (runs: WokenRunInfo[]): string =>

@@ -867,6 +867,7 @@ export const createInboxService = ({
       .select({
         authorId: inboxPosts.authorId,
         authorKind: inboxPosts.authorKind,
+        guestName: inboxPosts.guestName,
         text: inboxPosts.text,
       })
       .from(inboxPosts)
