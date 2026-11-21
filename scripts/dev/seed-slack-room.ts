@@ -20,7 +20,7 @@ import type { FakeSlackApp } from "@repo/services/slack/fake-slack";
 import { createTeamsService } from "@repo/services/teams";
 import type { Principal } from "@repo/services/workspaces";
 import { and, eq, or } from "drizzle-orm";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import {
   DEV_PERSON_EMAIL,
   DEV_SLACK_USER,
@@ -40,7 +40,7 @@ import { requireSecretsKey } from "./seed-slack-app.ts";
 
 // The boundary lint keeps `@repo/db/schema/*` to services, so this script
 // declares the columns it reads and writes. Keep them in step with
-// packages/db/src/schema/slack.ts and workspaces.ts.
+// packages/db/src/schema/slack.ts, teams.ts, library.ts and workspaces.ts.
 const slackApps = sqliteTable("slack_apps", {
   agentId: text("agent_id").notNull(),
   appId: text("app_id").notNull(),
@@ -61,6 +61,21 @@ const identityLinks = sqliteTable("identity_links", {
   id: text("id").primaryKey(),
   provider: text("provider").notNull(),
   teamId: text("team_id").notNull(),
+  workspaceId: text("workspace_id").notNull(),
+});
+const teams = sqliteTable("teams", {
+  folderPath: text("folder_path"),
+  id: text("id").primaryKey(),
+});
+const libraryEntries = sqliteTable("library_entries", {
+  etag: text("etag"),
+  kind: text("kind").notNull(),
+  mtime: text("mtime").notNull(),
+  parent: text("parent").notNull(),
+  path: text("path").notNull(),
+  size: integer("size").notNull(),
+  updatedById: text("updated_by_id").notNull(),
+  updatedByKind: text("updated_by_kind").notNull(),
   workspaceId: text("workspace_id").notNull(),
 });
 const teamSlackLinks = sqliteTable("team_slack_links", {
@@ -202,13 +217,46 @@ const noSlack = (): never => {
 };
 
 /**
+ * Repairs a Launch team that an older seed wrote with no folder: sets
+ * `folder_path` and makes the folder entries. The `addMember` calls that follow
+ * grant the agents their access, because they read the folder from the row.
+ */
+const giveFolder = async (
+  db: Database,
+  principal: Extract<Principal, { kind: "user" }>,
+  teamId: string
+): Promise<void> => {
+  const folderPath = `teams/${TEAM_SLUG}`;
+  const entries = ["teams", folderPath].map((path) =>
+    db
+      .insert(libraryEntries)
+      .values({
+        etag: null,
+        kind: "dir",
+        mtime: new Date().toISOString(),
+        parent: path === "teams" ? "" : "teams",
+        path,
+        size: 0,
+        updatedById: principal.userId,
+        updatedByKind: "user",
+        workspaceId: principal.workspaceId,
+      })
+      .onConflictDoNothing()
+  );
+  await sqliteAtomic(db)([
+    db.update(teams).set({ folderPath }).where(eq(teams.id, teamId)),
+    ...entries,
+  ]);
+};
+
+/**
  * Makes the Launch team through the teams service, which gives it its
  * `teams/launch` folder and its agents' grants on it, or finds it by slug.
  * Then adds every member, which a rerun repairs without duplicating.
  */
 const ensureTeam = async (
   db: Database,
-  principal: Principal,
+  principal: Extract<Principal, { kind: "user" }>,
   agents: SlackRoomAgent[],
   leadAgentId: string,
   userId: string
@@ -235,6 +283,9 @@ const ensureTeam = async (
       name: TEAM_NAME,
       slug: TEAM_SLUG,
     }));
+  if (existing && existing.folderPath === null) {
+    await giveFolder(db, principal, existing.id);
+  }
   const members = [
     ...agents.map((agent) => ({
       memberId: agent.agentId,
@@ -263,7 +314,7 @@ export const seedSlackRoom = async ({
 }: SeedSlackRoomInput): Promise<SlackRoomSummary> => {
   // An admin, so a rerun for another Clerk user can still add members to the
   // team the first run made.
-  const principal: Principal = {
+  const principal: Extract<Principal, { kind: "user" }> = {
     isAdmin: true,
     kind: "user",
     userId: clerkUserId,

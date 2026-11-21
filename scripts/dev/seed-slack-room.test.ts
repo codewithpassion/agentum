@@ -255,6 +255,20 @@ test("the Launch team has its folder, so a team dream does not refuse it", async
   });
 });
 
+test("a rerun gives a Launch team an older seed left with no folder its folder and grants", async () => {
+  const db = setup();
+  await seed(db);
+  db.client.run("UPDATE teams SET folder_path = NULL");
+  db.client.run("DELETE FROM agent_library_access");
+  db.client.run("DELETE FROM library_entries");
+
+  await seed(db);
+
+  expect(one(teamRows(db)).folder_path).toBe("teams/launch");
+  expect(count(db, "agent_library_access")).toBe(3);
+  expect(count(db, "library_entries")).toBe(2);
+});
+
 test("running it twice adds no duplicates and keeps the ids", async () => {
   const db = setup();
   const first = await seed(db);
