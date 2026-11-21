@@ -52,7 +52,7 @@ export const createHandOffRetrier = (deps: HandOffRetryDeps) => {
       )
       .orderBy(asc(inboxPosts.id));
     // The newest request of a team stands for all of them: the wake input
-    // carries the room posts since the lead last spoke, the older requests included.
+    // carries the room posts since the lead last spoke, which in practice includes the older requests.
     const newest = new Map(
       requests.map((request) => [request.teamId, request])
     );
@@ -62,7 +62,7 @@ export const createHandOffRetrier = (deps: HandOffRetryDeps) => {
         continue;
       }
       try {
-        // biome-ignore lint/performance/noAwaitInLoops: one request at a time, so a woken lead answers the older post before the next is judged
+        // biome-ignore lint/performance/noAwaitInLoops: one request at a time, so a failure stays with its own team
         const runs = await inbox.retryNoticeWake(
           { kind: "system" },
           request.postId,

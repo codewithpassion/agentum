@@ -1020,7 +1020,6 @@ export const createInboxService = ({
     requestId?: string,
     quiet = false
   ): Promise<WokenRun | null> => {
-    // A quiet retry records no stop, so a tick can ask every minute.
     const stopped = async (reason: StopReason, message?: string) => {
       if (!quiet) {
         await recordStop(waker, thread, entry, target.id, reason, message);

@@ -1,6 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
-import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import {
   inboxPosts as inboxPostRows,
@@ -18,6 +17,7 @@ import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { HAND_OFF_HEADING, TEAM_DIARY_TOPIC } from "./dream/team/collect.ts";
 import { createHandOffRetrier } from "./dream/team/hand-off-retry.ts";
+import { ServiceError } from "./errors.ts";
 import { createEventsService } from "./events.ts";
 import { createInboxService, type InboxService } from "./inbox.ts";
 import type { Clock, RuntimeAdapter } from "./runs/types.ts";
@@ -408,6 +408,13 @@ test("a hand-off request refused for the wake budget wakes the lead on a later t
   nowMs += 60_000;
   expect(await retrier.retry()).toEqual({ woken: [] });
   expect(runsOf("pelican")).toHaveLength(10);
+  expect(
+    db
+      .select()
+      .from(eventRows)
+      .where(eq(eventRows.type, "inbox.loop_stopped"))
+      .all()
+  ).toHaveLength(1);
 
   nowMs += 60 * 60_000;
   expect(await retrier.retry()).toEqual({ woken: [request.postId] });
@@ -448,18 +455,17 @@ test("two refused hand-off requests are answered by one retried wake that carrie
   nowMs += 1000;
   const second = await ask("Second rework.");
 
-  // A paused lead refuses the run, and the refusal is not recorded.
-  db.update(agentRows)
-    .set({ status: "paused" })
-    .where(eq(agentRows.id, agentId("pelican")))
-    .run();
+  // The run service refuses the wake, and the refusal is not recorded.
+  const real = runs;
+  runs = {
+    ...real,
+    startRun: () =>
+      Promise.reject(new ServiceError("conflict", "The agent is busy")),
+  };
   expect(await retrier.retry()).toEqual({ woken: [] });
   expect(stops()).toEqual([]);
+  runs = real;
 
-  db.update(agentRows)
-    .set({ status: "active" })
-    .where(eq(agentRows.id, agentId("pelican")))
-    .run();
   nowMs += 1000;
   expect(await retrier.retry()).toEqual({ woken: [second.postId] });
   const [run, ...others] = runsOf("pelican");
