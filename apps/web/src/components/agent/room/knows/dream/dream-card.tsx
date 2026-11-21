@@ -26,11 +26,11 @@ export interface DreamCardProps {
   nowMs: number;
   onDecide: (dreamRunId: string, decision: DreamDecision) => void;
   onRunNow: () => void;
-  onSchedule: (schedule: DreamSchedule) => void;
+  onSchedule?: (schedule: DreamSchedule) => void;
   onUndo: (dreamRunId: string) => void;
   pending: DreamPending | "schedule" | null;
   runs: readonly DreamRun[];
-  schedule: DreamSchedule;
+  schedule?: DreamSchedule;
 }
 
 function UndoNight({
@@ -234,12 +234,14 @@ export function DreamCard({
             {pending === "run" ? "Dreaming…" : "Dream now"}
           </Button>
         ) : null}
-        <DreamSchedulePicker
-          canChange={canChange}
-          disabled={busy}
-          onChange={onSchedule}
-          value={schedule}
-        />
+        {schedule === undefined || onSchedule === undefined ? null : (
+          <DreamSchedulePicker
+            canChange={canChange}
+            disabled={busy}
+            onChange={onSchedule}
+            value={schedule}
+          />
+        )}
       </div>
     </section>
   );
