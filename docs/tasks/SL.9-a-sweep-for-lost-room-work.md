@@ -3,7 +3,7 @@ id: SL.9
 title: "A sweep for lost room work"
 milestone: SL
 size: S
-status: todo
+status: in_progress
 depends_on: [SL.8]
 branch: null
 lane: slack
@@ -20,3 +20,5 @@ Check. Tick test that drops the deferred job and sees the sweep finish the work 
 ## Log
 - 2026-11-21: added by controller.
 - 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
+- 2026-11-22: back in scope on Dom's call (all deferred tasks except the flaky-test fixes).
+- 2026-11-22: dispatched.

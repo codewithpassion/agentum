@@ -3,7 +3,7 @@ id: TX.11
 title: "The seeded Launch team can dream"
 milestone: TX
 size: S
-status: todo
+status: in_progress
 depends_on: []
 branch: null
 lane: scripts-dev
@@ -22,3 +22,5 @@ Check. A seed test that `runTeamNow` on the seeded team does not refuse.
 ## Log
 - 2026-11-21: added by controller from the TX walkthrough.
 - 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
+- 2026-11-22: back in scope on Dom's call (all deferred tasks except the flaky-test fixes).
+- 2026-11-22: dispatched.
