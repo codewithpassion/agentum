@@ -14,7 +14,9 @@
 // between two conversations by itself. Set 3 is two new facts and the procedure three more times (a
 // batch to hold, and a skill that must not be filed again). Set 4 is two other
 // new facts. Everything except set 1 of round 1 is stamped at now, so the next
-// dream reads it. Round 2 swaps every name and time, so a second walkthrough
+// dream reads it. A dev build answers the dream from a script (`dream/scripted-model.ts`), so no key is
+// needed: with "Ask me first" on and two notes of kind work that disagree, added by hand, Dream now holds
+// two notes and asks one question, every time. Round 2 swaps every name and time, so a second walkthrough
 // (the phone one) meets fresh facts and a fresh procedure on the same agent.
 import { parseArgs } from "node:util";
 import {
