@@ -3,7 +3,7 @@ id: TM.17
 title: "Pass the compaction setting to Claude Code on machines"
 milestone: TM
 size: S
-status: in_progress
+status: ready
 depends_on: []
 branch: task/TM.17-pass-the-compaction-setting-to-claude-co
 lane: daemon
@@ -26,3 +26,4 @@ In `apps/agentum/src/claude.rs`, pass `--autocompact <tokens>` from the run's co
 ## Log
 - 2026-11-21: added by controller.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 25168032, review clean with no fix rounds. Flag confirmed with claude --help on 2.1.327.

@@ -27,3 +27,4 @@ The SL.13 merge check failed once on `apps/web/src/server/app-gateway/exports.te
 - 2026-11-21: added by controller after the SL.13 merge check timed out on this test.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at caf681ac, review clean, reviewer nit (a third file) applied.
+- 2026-11-21: first merge check failed on two proxy.test.ts refresh tests that FX.4 does not touch (pass alone 3 of 3). FX.6 added. Re-checking with the next batch.

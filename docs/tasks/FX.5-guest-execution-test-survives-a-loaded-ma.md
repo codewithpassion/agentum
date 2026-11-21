@@ -3,7 +3,7 @@ id: FX.5
 title: "The guest execution test survives a loaded machine"
 milestone: FX
 size: S
-status: todo
+status: in_progress
 depends_on: [FX.4]
 branch: null
 lane: e2e-scripts
@@ -25,3 +25,4 @@ FX.4's dispatcher saw `guest-execution.test.ts` (apps/web) fail twice in full `b
 
 ## Log
 - 2026-11-21: added by controller from the FX.4 report.
+- 2026-11-21: dispatched.
