@@ -3,7 +3,7 @@ id: TX.10
 title: "Team memory on the team page"
 milestone: TX
 size: S
-status: todo
+status: in_progress
 depends_on: [TX.11]
 branch: null
 lane: web-team
@@ -23,3 +23,4 @@ Check. A service test for the list and the notes read, component tests, then the
 - 2026-11-21: added by controller from the TX walkthrough.
 - 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
 - 2026-11-22: back in scope on Dom's call (all deferred tasks except the flaky-test fixes).
+- 2026-11-22: dispatched.
