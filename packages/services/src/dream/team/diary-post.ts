@@ -164,11 +164,8 @@ export const createTeamDiaryPoster = (deps: TeamDiaryPosterDeps) => {
     const due = dueRuns(await readCandidates(db, now), now.getTime());
     const done = await postedRunIds(db, due);
     const posted: string[] = [];
-    // The posted text is trimmed, as `postedRunIds` does; one team never gets the same text twice in a tick.
-    const sent = new Set<string>();
     for (const run of due) {
-      const key = `${run.teamId}\n${run.diary.trim()}`;
-      if (done.has(run.id) || sent.has(key)) {
+      if (done.has(run.id)) {
         continue;
       }
       try {
@@ -183,7 +180,6 @@ export const createTeamDiaryPoster = (deps: TeamDiaryPosterDeps) => {
           }
         );
         posted.push(run.id);
-        sent.add(key);
       } catch {
         // The diary stays due until its window closes, so the next tick tries again.
       }
