@@ -3,7 +3,7 @@ id: RH.10
 title: "The Find dialog's hidden heading is on every page"
 milestone: RH
 size: S
-status: ready
+status: done
 depends_on: [RH.7]
 branch: task/RH.10-the-find-dialog-s-hidden-heading-is-on-e
 lane: web-shell
@@ -27,3 +27,4 @@ A component test that the heading is absent while closed. Browser: no "Find" hea
 - 2026-11-20: added from the RH walkthrough.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at 67aa1484, review clean with no fix rounds, browser proof passed.
+- 2026-11-21: merged 45ca710b, merge check passed. Done.
