@@ -2,7 +2,8 @@
 // Seeds the local database that `bun run dev` in apps/web uses with a team room
 // for the fake Slack walkthrough: three fake-runtime agents, each with its own
 // Slack app in the fake's workspace, the Slack user linked to the dev user, and
-// a "Launch" team led by Ada. It links no channel, because the walkthrough does
+// a "Launch" team led by Ada, made through the teams service so it has its
+// `teams/launch` folder and its agents' grants and can dream. It links no channel, because the walkthrough does
 // that in the UI. A second run changes nothing it already has and repairs what
 // is missing. Progress and errors go to stderr, and the summary goes to stdout
 // as JSON. Run from the repo root:
@@ -13,11 +14,13 @@ import type { Database } from "@repo/db";
 import { type Statement, sqliteAtomic } from "@repo/db/atomic";
 import { createAgentsService } from "@repo/services/agents";
 import { encryptSecret, importSecretsKey } from "@repo/services/crypto";
+import { systemClock } from "@repo/services/runs/types";
 import { slackSecretBinding } from "@repo/services/slack/apps";
 import type { FakeSlackApp } from "@repo/services/slack/fake-slack";
+import { createTeamsService } from "@repo/services/teams";
 import type { Principal } from "@repo/services/workspaces";
 import { and, eq, or } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import {
   DEV_PERSON_EMAIL,
   DEV_SLACK_USER,
@@ -37,7 +40,7 @@ import { requireSecretsKey } from "./seed-slack-app.ts";
 
 // The boundary lint keeps `@repo/db/schema/*` to services, so this script
 // declares the columns it reads and writes. Keep them in step with
-// packages/db/src/schema/slack.ts, teams.ts and workspaces.ts.
+// packages/db/src/schema/slack.ts and workspaces.ts.
 const slackApps = sqliteTable("slack_apps", {
   agentId: text("agent_id").notNull(),
   appId: text("app_id").notNull(),
@@ -57,23 +60,6 @@ const identityLinks = sqliteTable("identity_links", {
   externalUserId: text("external_user_id").notNull(),
   id: text("id").primaryKey(),
   provider: text("provider").notNull(),
-  teamId: text("team_id").notNull(),
-  workspaceId: text("workspace_id").notNull(),
-});
-const teams = sqliteTable("teams", {
-  createdAt: text("created_at").notNull(),
-  id: text("id").primaryKey(),
-  leadAgentId: text("lead_agent_id"),
-  leadListens: integer("lead_listens", { mode: "boolean" }).notNull(),
-  name: text("name").notNull(),
-  ownerUserId: text("owner_user_id"),
-  slug: text("slug").notNull(),
-  workspaceId: text("workspace_id").notNull(),
-});
-const teamMembers = sqliteTable("team_members", {
-  isHome: integer("is_home", { mode: "boolean" }).notNull(),
-  memberId: text("member_id").notNull(),
-  memberKind: text("member_kind").notNull(),
   teamId: text("team_id").notNull(),
   workspaceId: text("workspace_id").notNull(),
 });
@@ -210,10 +196,64 @@ const ensureAgents = async (
   );
 };
 
+/** The service has no Slack here, and the seed never asks it for any. */
+const noSlack = (): never => {
+  throw new LocalError("The seed has no Slack channels to read.");
+};
+
 /**
- * Seeds the Slack room for `clerkUserId` in `workspaceId`. Agents come first,
- * then one atomic write holds the Slack apps, the identity link, the team, its
- * members and the removal of any channel link.
+ * Makes the Launch team through the teams service, which gives it its
+ * `teams/launch` folder and its agents' grants on it, or finds it by slug.
+ * Then adds every member, which a rerun repairs without duplicating.
+ */
+const ensureTeam = async (
+  db: Database,
+  principal: Principal,
+  agents: SlackRoomAgent[],
+  leadAgentId: string,
+  userId: string
+): Promise<string> => {
+  const service = createTeamsService({
+    atomic: sqliteAtomic(db),
+    clock: systemClock,
+    db,
+    slackChannels: {
+      canPost: noSlack,
+      list: noSlack,
+      personChannels: noSlack,
+    },
+    slackStatus: noSlack,
+  });
+  const existing = (await service.list(principal)).find(
+    (candidate) => candidate.slug === TEAM_SLUG
+  );
+  const team =
+    existing ??
+    (await service.create(principal, {
+      leadAgentId,
+      leadListens: true,
+      name: TEAM_NAME,
+      slug: TEAM_SLUG,
+    }));
+  const members = [
+    ...agents.map((agent) => ({
+      memberId: agent.agentId,
+      memberKind: "agent" as const,
+    })),
+    { memberId: userId, memberKind: "user" as const },
+  ];
+  await Promise.all(
+    members.map((member) =>
+      service.addMember(principal, { ...member, teamId: team.id })
+    )
+  );
+  return team.id;
+};
+
+/**
+ * Seeds the Slack room for `clerkUserId` in `workspaceId`. Agents and the team
+ * come first, through their services, then one atomic write holds the Slack
+ * apps, the identity link and the removal of any channel link.
  */
 export const seedSlackRoom = async ({
   clerkUserId,
@@ -221,7 +261,10 @@ export const seedSlackRoom = async ({
   secretsKey,
   workspaceId,
 }: SeedSlackRoomInput): Promise<SlackRoomSummary> => {
+  // An admin, so a rerun for another Clerk user can still add members to the
+  // team the first run made.
   const principal: Principal = {
+    isAdmin: true,
     kind: "user",
     userId: clerkUserId,
     via: "session",
@@ -274,43 +317,13 @@ export const seedSlackRoom = async ({
         })
   );
 
-  const teamRows = await db
-    .select({ id: teams.id })
-    .from(teams)
-    .where(and(eq(teams.workspaceId, workspaceId), eq(teams.slug, TEAM_SLUG)));
-  const [existingTeam] = teamRows;
-  const teamId = existingTeam?.id ?? crypto.randomUUID();
-  if (!existingTeam) {
-    statements.push(
-      db.insert(teams).values({
-        createdAt: new Date().toISOString(),
-        id: teamId,
-        leadAgentId: agentIdOf(LEAD_SLUG),
-        leadListens: true,
-        name: TEAM_NAME,
-        ownerUserId: clerkUserId,
-        slug: TEAM_SLUG,
-        workspaceId,
-      })
-    );
-  }
-
-  const members = [
-    ...agents.map((agent) => ({
-      memberId: agent.agentId,
-      memberKind: "agent",
-    })),
-    { memberId: clerkUserId, memberKind: "user" },
-  ];
-  for (const member of members) {
-    statements.push(
-      db
-        .insert(teamMembers)
-        .values({ ...member, isHome: false, teamId, workspaceId })
-        .onConflictDoNothing()
-    );
-  }
-
+  const teamId = await ensureTeam(
+    db,
+    principal,
+    agents,
+    agentIdOf(LEAD_SLUG),
+    clerkUserId
+  );
   statements.push(
     db.delete(teamSlackLinks).where(eq(teamSlackLinks.teamId, teamId))
   );

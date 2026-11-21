@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
 import { migrated } from "@repo/db/test-db";
 import { decryptSecret, importSecretsKey } from "@repo/services/crypto";
+import { createDreamService } from "@repo/services/dream";
+import { createEventsService } from "@repo/services/events";
+import { createLibraryService } from "@repo/services/library";
+import { memoryLibraryBlobs } from "@repo/services/library/memory";
+import { createMemoryService } from "@repo/services/memory";
+import { systemClock } from "@repo/services/runs/types";
+import { createSkillsStoreService } from "@repo/services/skills-store";
+import { memorySkillBlobs } from "@repo/services/skills-store/memory";
 import { slackSecretBinding } from "@repo/services/slack/apps";
 import {
   DEV_PERSON_EMAIL,
@@ -59,6 +68,7 @@ const appRows = (db: Db): AppRow[] =>
   db.client.query<AppRow, []>("SELECT * FROM slack_apps ORDER BY app_id").all();
 
 interface TeamRow {
+  folder_path: string | null;
   id: string;
   lead_agent_id: string | null;
   lead_listens: number;
@@ -175,6 +185,74 @@ test("links the Slack user to the Clerk user and makes the Launch team", async (
       .sort()
   ).toEqual(["agent", "agent", "agent", "user"]);
   expect(count(db, "team_slack_links")).toBe(0);
+});
+
+test("the Launch team has its folder, so a team dream does not refuse it", async () => {
+  const db = setup();
+  const { teamId } = await seed(db);
+
+  expect(one(teamRows(db)).folder_path).toBe("teams/launch");
+  expect(
+    db.client
+      .query<{ n: number }, []>(
+        "SELECT COUNT(*) AS n FROM agent_library_access WHERE path = 'teams/launch' AND mode = 'write'"
+      )
+      .get()?.n
+  ).toBe(3);
+
+  const atomic = sqliteAtomic(db);
+  const events = createEventsService({
+    blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+    db,
+  });
+  const library = createLibraryService({
+    atomic,
+    blobs: memoryLibraryBlobs(),
+    clock: systemClock,
+    db,
+    events,
+  });
+  const dream = createDreamService({
+    atomic,
+    clock: systemClock,
+    db,
+    events,
+    fetch: () => Promise.resolve(new Response("{}", { status: 500 })),
+    inbox: {
+      postNotice: () =>
+        Promise.resolve({ postId: "post", runs: [], threadId: "thread" }),
+      retryNoticeWake: () => Promise.resolve([]),
+    },
+    library,
+    managedKeys: { resolve: () => Promise.resolve(null) },
+    memory: createMemoryService({
+      atomic,
+      clock: systemClock,
+      db,
+      events,
+      library,
+    }),
+    skillsStore: createSkillsStoreService({
+      atomic,
+      blobs: memorySkillBlobs(),
+      clock: systemClock,
+      db,
+      events,
+      library,
+    }),
+  });
+  const principal = {
+    kind: "user",
+    userId: CLERK_USER,
+    via: "session",
+    workspaceId: WORKSPACE,
+  } as const;
+
+  // A team with no folder is refused before a run is made. A dream that fails
+  // after that is a `failed` run, which this test does not mind.
+  await expect(dream.runTeamNow(principal, teamId)).resolves.toMatchObject({
+    teamId,
+  });
 });
 
 test("running it twice adds no duplicates and keeps the ids", async () => {
