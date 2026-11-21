@@ -3,7 +3,7 @@ id: TX.13
 title: "Only the system's hand-off post wakes the lead"
 milestone: TX
 size: S
-status: ready
+status: done
 depends_on: []
 branch: task/TX.13-only-the-system-s-hand-off-post-wakes-th
 lane: services-dream
@@ -29,3 +29,4 @@ From the TX gate review, round 1 (must-fix, security). TX.8 is live in productio
 - 2026-11-21: added by controller from the TX gate review, round 1. Security fix, deploy right after merge.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at 611da052. The dispatcher skipped its review, so the controller ran a fresh Opus review: clean, 3 test nits.
+- 2026-11-21: merged 4e8c4bd6, merge check passed. Done. Deploying right away.
