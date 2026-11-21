@@ -55,6 +55,7 @@ const SUMMARY_NAME = "summary.txt";
 const SUMMARY_CONTENT = "Launch is on track.";
 const SUMMARY_TEXT = "Here is the summary.";
 const DM_FILE_THREAD_TS = "1789171203.000300";
+const BEARER_TOKEN = /^Bearer xoxb-/;
 const UNLINKED_TEXT =
   "I don't know you yet. Ask an Agentum admin of this workspace to invite you, using the same email address as your Slack profile.";
 const HIDDEN_EMAIL_TEXT =
@@ -83,6 +84,7 @@ let dropDeferred: boolean;
 let failAtomic: boolean;
 let slackCalls: SlackCall[];
 let slackEmail: string | null;
+let slackUserTeam: string;
 let downloadStatus: number;
 let statusAnswer: Record<string, unknown>;
 let postSeq: number;
@@ -181,6 +183,7 @@ const fakeSlack = async (
       user: {
         id: "U0NEW",
         profile: { email: slackEmail, real_name: "Newcomer" },
+        team_id: slackUserTeam,
       },
     },
   };
@@ -224,6 +227,7 @@ beforeEach(async () => {
   failAtomic = false;
   slackCalls = [];
   slackEmail = "newcomer@example.com";
+  slackUserTeam = "T0TEAM";
   downloadStatus = OK;
   statusAnswer = { ok: true };
   postSeq = 100;
@@ -1752,6 +1756,114 @@ test("an unknown Slack user posts as a named guest and wakes nobody", async () =
     },
   ]);
   expect(allRuns()).toEqual([]);
+});
+
+const roomEphemerals = () =>
+  slackCalls.filter((call) => call.method === "chat.postEphemeral");
+
+/** A Clerk user the directory finds by the newcomer's email, in the org and in the team. */
+const addNewcomerToTeam = async () => {
+  directory = { emailOwner: "user_new", member: true };
+  await composed.services.teams.addMember(
+    { ...ROOM_OWNER, workspaceId },
+    { memberId: "user_new", memberKind: "user", teamId: roomTeamId }
+  );
+};
+
+test("the first message of an unlinked team member posts as that person, links them and wakes the lead", async () => {
+  await setupRoom();
+  await addNewcomerToTeam();
+
+  await sendToAllApps({
+    text: "Launch is on Friday.",
+    ts: ROOM_FIRST_TS,
+    user: "U0NEW",
+  });
+  await runAfterJobs();
+
+  expect(roomPosts()).toMatchObject([
+    { authorId: "user_new", authorKind: "user", text: "Launch is on Friday." },
+  ]);
+  expect(
+    db
+      .select()
+      .from(identityLinks)
+      .all()
+      .filter((link) => link.externalUserId === "U0NEW")
+  ).toMatchObject([
+    {
+      clerkUserId: "user_new",
+      email: "newcomer@example.com",
+      teamId: "T0TEAM",
+    },
+  ]);
+  expect(allRuns()).toHaveLength(1);
+  expect(roomEphemerals()).toEqual([]);
+  expect(eventTypes()).not.toContain("slack.unlinked_sender");
+});
+
+test("an unlinked Slack user who matches nobody stays a guest and is told once how to get linked", async () => {
+  await setupRoom();
+
+  await sendToAllApps({ text: "hello", ts: ROOM_FIRST_TS, user: STRANGER });
+  await sendToAllApps({
+    text: "anyone there?",
+    ts: "1789172000.000200",
+    user: STRANGER,
+  });
+  await runAfterJobs();
+
+  expect(roomPosts()).toMatchObject([
+    { authorId: `slack:T0TEAM:${STRANGER}` },
+    { authorId: `slack:T0TEAM:${STRANGER}` },
+  ]);
+  expect(allRuns()).toEqual([]);
+  expect(roomEphemerals()).toHaveLength(1);
+  expect(roomEphemerals()[0]?.body).toMatchObject({
+    channel: ROOM_CHANNEL,
+    text: UNLINKED_TEXT,
+    thread_ts: ROOM_FIRST_TS,
+    user: STRANGER,
+  });
+  expect(roomEphemerals()[0]?.auth).toMatch(BEARER_TOKEN);
+  expect(eventTypes().filter((t) => t === "slack.unlinked_sender")).toEqual([
+    "slack.unlinked_sender",
+  ]);
+  expect(db.select().from(identityLinks).all()).toHaveLength(1);
+});
+
+test("a guest whose Slack email is hidden is told to make it visible", async () => {
+  await setupRoom();
+  slackEmail = null;
+
+  await sendToAllApps({ text: "hello", ts: ROOM_FIRST_TS, user: STRANGER });
+  await runAfterJobs();
+
+  expect(roomEphemerals()).toHaveLength(1);
+  expect(roomEphemerals()[0]?.body.text).toBe(HIDDEN_EMAIL_TEXT);
+});
+
+test("a Slack Connect user from another organisation is not linked by email", async () => {
+  await setupRoom();
+  await addNewcomerToTeam();
+  slackUserTeam = "T0OTHER";
+
+  await sendToAllApps({
+    text: "hi from outside",
+    ts: ROOM_FIRST_TS,
+    user: "U0NEW",
+  });
+  await runAfterJobs();
+
+  expect(roomPosts()).toMatchObject([
+    {
+      authorId: "slack:T0TEAM:U0NEW",
+      text: "Newcomer (Slack guest): hi from outside",
+    },
+  ]);
+  expect(allRuns()).toEqual([]);
+  expect(db.select().from(identityLinks).all()).toHaveLength(1);
+  expect(roomEphemerals()).toEqual([]);
 });
 
 test("a linked person who is not in the team posts as a guest", async () => {
