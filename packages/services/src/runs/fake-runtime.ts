@@ -130,7 +130,7 @@ const NEEDS_PROXY =
 /**
  * Answers every run with an echo of its input, so the lanes can test against a
  * run that goes end to end before a machine exists. It is the one adapter that
- * finishes the run inside `dispatch`. `createRunsService` registers it only
+ * finishes a run inside `dispatch` (an `ask:` run finishes in `resume`). `createRunsService` registers it only
  * when `devFakeRuntime` is true.
  *
  * A run for a `fake-tool` model, or with a `tool:<name>` marker in its text,
