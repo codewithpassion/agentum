@@ -72,6 +72,8 @@ export interface RunDeps {
   library: DreamMemoryLibrary;
   managedKeys: Pick<ManagedKeysService, "resolve">;
   skillsStore: Pick<SkillsStoreService, "list" | "proposeForAgent">;
+  /** Told when a dream ends, so a cap its cost crossed pauses the agent. */
+  spend?: { enforceCap: (agentId: string) => Promise<void> };
 }
 
 const countsOf = (plan: DreamPlan): DreamCounts => ({
@@ -643,6 +645,11 @@ export const createDreamRunner = (deps: RunDeps) => {
           usage: failure.usage ? JSON.stringify(failure.usage) : null,
         }),
       ]);
+    }
+    try {
+      await deps.spend?.enforceCap(agent.id);
+    } catch {
+      // The next run that finishes enforces the cap again.
     }
     return toRun(await runRow(runId));
   };

@@ -5,7 +5,7 @@ import { events } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { eq } from "drizzle-orm";
-import { createDreamService } from "../dream.ts";
+import { createDreamService, type DreamDeps } from "../dream.ts";
 import { createEventsService } from "../events.ts";
 import type { InboxService } from "../inbox.ts";
 import {
@@ -110,7 +110,12 @@ export const quiet: Script = ({ kind }) => {
   return JSON.stringify({ groups: [] });
 };
 
-export const makeDreamWorld = (initial: Script = quiet, dreamClock?: Clock) => {
+export const makeDreamWorld = (
+  initial: Script = quiet,
+  dreamClock?: Clock,
+  /** Builds the spend dependency from the world's own database, for a test of the caps. */
+  makeSpend?: (world: World) => DreamDeps["spend"]
+) => {
   const world: World = makeWorld();
   let script = initial;
   const calls: Call[] = [];
@@ -178,6 +183,7 @@ export const makeDreamWorld = (initial: Script = quiet, dreamClock?: Clock) => {
     },
     memory: world.service,
     skillsStore,
+    spend: makeSpend?.(world),
   });
 
   // A conversation that is nobody's private one: a UI session is tagged to its person, a trigger's is not.

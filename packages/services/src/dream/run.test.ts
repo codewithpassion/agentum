@@ -1,9 +1,17 @@
 import { expect, test } from "bun:test";
 import { agents } from "@repo/db/schema/agents";
-import { dreamQuestions } from "@repo/db/schema/dreams";
+import { dreamQuestions, dreamRuns } from "@repo/db/schema/dreams";
 import { memoryChanges } from "@repo/db/schema/memory";
 import { eq } from "drizzle-orm";
-import { AGENT, OWNER, person, USER_A, USER_B } from "../memory/test-world.ts";
+import {
+  AGENT,
+  OWNER,
+  person,
+  USER_A,
+  USER_B,
+  WORKSPACE,
+} from "../memory/test-world.ts";
+import { createSpendService } from "../spend.ts";
 import {
   type Call,
   defined,
@@ -946,4 +954,58 @@ test("a person's write while the dream is thinking is not written over when the 
   await expect(
     w.dream.decide(w.owner, { decision: "approve", dreamRunId: run.id })
   ).rejects.toMatchObject({ code: "conflict" });
+});
+
+/** A dream world whose spend is the real service, with the agent's cap at one cent. */
+const cappedWorld = (priorUsd: number) => {
+  const w = makeDreamWorld(
+    keepsOne("Mia wants Google Docs"),
+    undefined,
+    (world) =>
+      createSpendService({
+        atomic: world.atomic,
+        clock: world.clock,
+        db: world.db,
+      })
+  );
+  w.db
+    .update(agents)
+    .set({ weeklyCapCents: 1 })
+    .where(eq(agents.id, AGENT))
+    .run();
+  w.db
+    .insert(dreamRuns)
+    .values({
+      agentId: AGENT,
+      id: "earlier",
+      startedAt: w.clock.now().toISOString(),
+      status: "done",
+      usage: JSON.stringify({ costUsd: priorUsd }),
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  w.say("Mia wants drafts as Google Docs");
+  return w;
+};
+
+const agentRow = (w: ReturnType<typeof makeDreamWorld>) =>
+  defined(w.db.select().from(agents).where(eq(agents.id, AGENT)).get());
+
+test("a dream whose cost takes the agent over its cap pauses the agent", async () => {
+  // Half a cent rounds up to the one-cent cap. 0.00499 is just under it, and the dream's own cost (0.00002) tips it over.
+  const w = cappedWorld(0.004_99);
+  expect(agentRow(w).pausedAt).toBeNull();
+  const run = await w.dream.runNow(w.owner, AGENT);
+  expect(run.status).toBe("done");
+  expect(agentRow(w)).toMatchObject({
+    pausedReason: "spend_cap",
+  });
+  expect(agentRow(w).pausedAt).not.toBeNull();
+});
+
+test("a dream that stays under the cap pauses nobody", async () => {
+  const w = cappedWorld(0);
+  const run = await w.dream.runNow(w.owner, AGENT);
+  expect(run.status).toBe("done");
+  expect(agentRow(w).pausedAt).toBeNull();
 });
