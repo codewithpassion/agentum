@@ -269,3 +269,17 @@ test("a failing post for one team does not stop another team's diary", async () 
   ).toEqual({ posted: ["run_bare"] });
   expect(notices.map((notice) => notice.teamId)).toEqual([BARE]);
 });
+
+test("two finished dreams for one team and one slot post only the newest diary", async () => {
+  const { at, clock, w } = makeDiaryWorld();
+  const { inbox, notices } = fakeInbox(w, clock);
+  finishDream(w, "run_old", TEAM, "Diary old");
+  finishDream(w, "run_new", TEAM, "Diary new", "2026-11-20T18:00:00.000Z");
+  const poster = createTeamDiaryPoster({ clock, db: w.db, inbox });
+  at(SLOT);
+  expect(await poster.postDue()).toEqual({ posted: ["run_new"] });
+  expect(notices.map((notice) => notice.text)).toEqual(["Diary new"]);
+  at(LATER_SAME_DAY);
+  expect(await poster.postDue()).toEqual({ posted: [] });
+  expect(notices).toHaveLength(1);
+});
