@@ -3,6 +3,7 @@ import type { AgentRecord } from "../agents.ts";
 import type { LibraryService } from "../library.ts";
 import { libraryMemoryReader } from "../memory/prompt.ts";
 import { libraryTeamMemoryReader } from "../memory/team.ts";
+import { approvedDecision } from "../requests/outbound.ts";
 import type { RunTokenClaims } from "../run-tokens.ts";
 import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { modelOfRun } from "./access-scope.ts";
@@ -13,9 +14,23 @@ import {
   wantsTool,
 } from "./fake-tool.ts";
 import { buildLaunchContext } from "./launch-context.ts";
-import type { RunEventInput, RunRecord, RuntimeAdapter } from "./types.ts";
+import type {
+  AdapterDeps,
+  RunEventInput,
+  RunRecord,
+  RuntimeAdapter,
+} from "./types.ts";
 
 export interface FakeRuntimeOptions {
+  /**
+   * Opens an approval request for a run, as a real runtime does when it wants
+   * to use a tool. Without it, an `ask:<tool>` run fails.
+   */
+  askApproval?: (request: {
+    runId: string;
+    toolName: string;
+    toolUseId: string;
+  }) => Promise<void>;
   /** Where the run's memory notes are read from. Without it, the reply carries no notes. */
   library?: Partial<Pick<LibraryService, "read">>;
   /** How the tool mode reaches the connector proxy. Without it, a tool run fails. */
@@ -60,6 +75,55 @@ const memoryNotesOf = async (
   }
 };
 
+const ASK_MARKER = /ask:([A-Za-z0-9_.-]+)/;
+const NEEDS_APPROVALS = "The fake ask mode needs the requests service.";
+
+/** The tool an `ask:<tool>` marker in the task text names, or null. */
+const askedToolOf = (text: string): string | null =>
+  ASK_MARKER.exec(text)?.[1] ?? null;
+
+/** The same id for a run's one approval, so a retried dispatch opens no second card. */
+const toolUseIdOf = (run: RunRecord): string => `fake-ask-${run.id}`;
+
+/** Records the reply as the run's last event and ends the run as done. */
+const finishWithText = async (
+  deps: AdapterDeps,
+  run: RunRecord,
+  text: string,
+  earlier: readonly Omit<RunEventInput, "seq">[] = []
+): Promise<void> => {
+  const reply: Omit<RunEventInput, "seq"> = {
+    payload: { text },
+    type: "message.assistant",
+  };
+  const events: RunEventInput[] = [...earlier, reply].map((event, index) => ({
+    ...event,
+    seq: index + 1,
+  }));
+  await deps.ingestRunEvents(SYSTEM_PRINCIPAL, run.id, events);
+  await deps.completeRun(SYSTEM_PRINCIPAL, run.id, { status: "done", text });
+};
+
+/** Opens the run's approval, or fails the run when there is no way to. */
+const openAsk = async (
+  deps: AdapterDeps,
+  run: RunRecord,
+  toolName: string,
+  askApproval: FakeRuntimeOptions["askApproval"]
+): Promise<void> => {
+  try {
+    if (!askApproval) {
+      throw new Error(NEEDS_APPROVALS);
+    }
+    await askApproval({ runId: run.id, toolName, toolUseId: toolUseIdOf(run) });
+  } catch (error) {
+    await deps.completeRun(SYSTEM_PRINCIPAL, run.id, {
+      error: error instanceof Error ? error.message : String(error),
+      status: "failed",
+    });
+  }
+};
+
 const NEEDS_PROXY =
   "The fake tool mode needs the proxy's base URL (PUBLIC_BASE_URL) and RUN_TOKEN_KEY.";
 
@@ -73,8 +137,13 @@ const NEEDS_PROXY =
  * calls one tool of the agent's first app through the connector proxy with a
  * real run token and answers with what came back, so a person can watch an
  * agent use an app without a machine.
+ *
+ * A run with an `ask:<tool>` marker in its text opens an approval request for
+ * that tool and waits. The answer closes the request, and `resume` then ends
+ * the run with a reply that names the decision.
  */
 export const createFakeRuntime = ({
+  askApproval,
   library,
   proxy,
   signToken,
@@ -83,6 +152,11 @@ export const createFakeRuntime = ({
   dispatch: async (db, run, agent, deps) => {
     const claimed = await deps.claimRun(SYSTEM_PRINCIPAL, run.id);
     const input = claimed.inputText;
+    const askedTool = askedToolOf(input);
+    if (askedTool) {
+      await openAsk(deps, run, askedTool, askApproval);
+      return;
+    }
     const toolMode = wantsTool(modelOfRun(claimed, agent), input);
     // A tool run answers with the tool's result, so it does not list notes.
     const notes = toolMode
@@ -116,16 +190,14 @@ export const createFakeRuntime = ({
         return;
       }
     }
-    const { text } = result;
-    const reply: Omit<RunEventInput, "seq"> = {
-      payload: { text },
-      type: "message.assistant",
-    };
-    const events: RunEventInput[] = [...result.events, reply].map(
-      (event, index) => ({ ...event, seq: index + 1 })
-    );
-    await deps.ingestRunEvents(SYSTEM_PRINCIPAL, run.id, events);
-    await deps.completeRun(SYSTEM_PRINCIPAL, run.id, { status: "done", text });
+    await finishWithText(deps, run, result.text, result.events);
   },
   kind: "fake",
+  resume: async (run, request, deps) => {
+    if (request.kind !== "approval" || request.toolUseId !== toolUseIdOf(run)) {
+      return;
+    }
+    const decision = approvedDecision(request.outcome) ? "Allowed" : "Denied";
+    await finishWithText(deps, run, `${decision} ${request.toolName}.`);
+  },
 });

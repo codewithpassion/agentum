@@ -79,7 +79,10 @@ import {
 import { validateSubagentAccess } from "./runs/access-scope.ts";
 import { authorizeArtifactRun } from "./runs/artifact-access.ts";
 import { runDefersQuestions } from "./runs/deferral.ts";
-import { createFakeRuntime } from "./runs/fake-runtime.ts";
+import {
+  createFakeRuntime,
+  type FakeRuntimeOptions,
+} from "./runs/fake-runtime.ts";
 import type { ProxyAccess } from "./runs/fake-tool.ts";
 import { noneGateway } from "./runs/gateways.ts";
 import {
@@ -375,6 +378,12 @@ export interface RunsServiceOptions {
   adapters: readonly RuntimeAdapter[];
   /** Called after a batch holding a `tool.call` or `tool.result` is stored (a tool result follows the `network.request` and `browser.action` events the tool wrote while it ran), with the run's id. The memory service uses it to hold notes the run applied before the outside text showed up. A throw is logged and never fails the ingest. */
   afterToolEvents?: (runId: string) => Promise<unknown>;
+  /**
+   * Opens an approval request for a run, for the fake runtime's `ask:<tool>`
+   * mode. The requests service is built after this one, so the caller passes
+   * a function that reaches it lazily. Only read when `devFakeRuntime` is true.
+   */
+  askApproval?: FakeRuntimeOptions["askApproval"];
   atomic: Atomic;
   /** Trusted selected-agent policy. Session/grant checks and atomic cap are enforced internally.
    * Must not charge: retries call this policy again. */
@@ -520,6 +529,7 @@ const continuationSubjectOf = (
 export const createRunsService = ({
   adapters,
   afterToolEvents,
+  askApproval,
   authorizeGuestGrant,
   guestAdapter,
   guestRuntimeReady,
@@ -545,6 +555,7 @@ export const createRunsService = ({
     adapterByKind.set(
       "fake",
       createFakeRuntime({
+        askApproval,
         library,
         proxy,
         signToken: (claims) => signToken(claims),
@@ -1775,7 +1786,7 @@ export const createRunsService = ({
       return;
     }
     const { adapter } = await adapterFor(run);
-    await adapter?.resume?.(run, request);
+    await adapter?.resume?.(run, request, adapterDeps);
   };
 
   const holdAfterToolCall = async (

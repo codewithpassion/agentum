@@ -1,6 +1,7 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
+import { runRequests as requestRows } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import type { MemoryNote } from "@repo/db/shared";
@@ -12,6 +13,7 @@ import { notFound } from "../errors.ts";
 import { type Blobs, createEventsService } from "../events.ts";
 import type { LibraryService } from "../library.ts";
 import { serializeMemoryFile } from "../memory/codec.ts";
+import { createRequestsService } from "../requests.ts";
 import { importRunTokenKey, verifyAgentToken } from "../run-tokens.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
@@ -144,6 +146,40 @@ const buildRuns = (
     proxy,
     runTokenKey: RUN_TOKEN_KEY,
   });
+};
+
+/**
+ * Runs and requests wired as the app wires them: the fake runtime opens its
+ * approvals through a requests service that is built after the runs service.
+ */
+const buildAskable = () => {
+  const blobs = memoryBlobs();
+  const clock = { now: () => new Date(START), sleep: () => Promise.resolve() };
+  const asking: RunsService = createRunsService({
+    adapters: [],
+    askApproval: async (request) => {
+      await approvals.open(SYSTEM_PRINCIPAL, {
+        ...request,
+        input: {},
+        kind: "approval",
+      });
+    },
+    atomic: sqliteAtomic(db),
+    blobs,
+    clock,
+    db,
+    devFakeRuntime: true,
+    gateways: [],
+  });
+  const approvals = createRequestsService({
+    atomic: sqliteAtomic(db),
+    clock,
+    db,
+    events: createEventsService({ blobs, db }),
+    runs: asking,
+    secrets: { maskerFor: () => Promise.resolve(null) },
+  });
+  return { approvals, asking };
 };
 
 /** An agent with the connector assigned, on the given model. */
@@ -407,4 +443,83 @@ test("a tool-mode run answers with the tool's result and lists no notes", async 
   );
 
   expect(summary.resultText).toBe(`Used ${TOOL}: Workers KV is a store.`);
+});
+
+const askRun = async (text: string) => {
+  const { approvals, asking } = buildAskable();
+  const agent = await agents.create(user, {
+    model: "m",
+    name: "Ada",
+    runtime: "fake",
+  });
+  const started = await asking.startRun(user, {
+    agentId: agent.id,
+    input: { text },
+    session: { origin: "ui" },
+  });
+  return { approvals, asking, runId: started.runId };
+};
+
+const requestOf = async (runId: string) => {
+  const [request] = await db
+    .select()
+    .from(requestRows)
+    .where(eq(requestRows.runId, runId));
+  return request;
+};
+
+test("an ask run opens an approval for the named tool and waits", async () => {
+  const { asking, runId } = await askRun("@ada ask:send_email");
+
+  const request = await requestOf(runId);
+  expect(request).toMatchObject({
+    kind: "approval",
+    status: "pending",
+    toolName: "send_email",
+  });
+  expect((await asking.waitForRun(user, runId, 0)).status).toBe("waiting");
+});
+
+test("allowing the approval ends the run with a reply that names the decision", async () => {
+  const { approvals, asking, runId } = await askRun("ask:send_email");
+  const request = await requestOf(runId);
+
+  await approvals.answer(user, {
+    answer: { decision: "allow_once" },
+    requestId: request?.id ?? "",
+    via: "web",
+  });
+
+  expect(await asking.waitForRun(user, runId, 5000)).toMatchObject({
+    resultText: "Allowed send_email.",
+    status: "done",
+  });
+});
+
+test("denying the approval ends the run with a reply that says it was denied", async () => {
+  const { approvals, asking, runId } = await askRun("ask:send_email");
+  const request = await requestOf(runId);
+
+  await approvals.answer(user, {
+    answer: { decision: "deny" },
+    requestId: request?.id ?? "",
+    via: "web",
+  });
+
+  expect(await asking.waitForRun(user, runId, 5000)).toMatchObject({
+    resultText: "Denied send_email.",
+    status: "done",
+  });
+});
+
+test("an ask run without a requests service fails with a line saying so", async () => {
+  const agent = await agents.create(user, {
+    model: "m",
+    name: "Ada",
+    runtime: "fake",
+  });
+  const { summary } = await runAs(user, agent.id, "ask:send_email");
+
+  expect(summary.status).toBe("failed");
+  expect(summary.error).toContain("requests service");
 });

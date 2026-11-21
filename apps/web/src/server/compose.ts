@@ -1054,6 +1054,14 @@ export const composeWith = ({
     adapters,
     afterToolEvents: (runId) =>
       memory.holdAfterOutsideText(SYSTEM_PRINCIPAL, runId),
+    // `requests` is built below, so the fake runtime reaches it lazily.
+    askApproval: async (request) => {
+      await requests.open(SYSTEM_PRINCIPAL, {
+        ...request,
+        input: {},
+        kind: "approval",
+      });
+    },
     atomic: infra.atomic,
     blobs: infra.blobs,
     clock: infra.clock,
