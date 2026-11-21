@@ -3,7 +3,7 @@ id: FR.5
 title: "Fresh workspace walkthrough"
 milestone: FR
 size: S
-status: todo
+status: in_progress
 depends_on: [FR.2, FR.3, FR.4]
 branch: null
 lane: e2e
@@ -24,3 +24,4 @@ From `docs/v4/build-plan.md`, milestone FR. The last check: a new person gets fr
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-21: dispatched for the end-of-v4 test pass. Findings are recorded only; proposed tasks go to docs/backlog/v4-later unless they are must-fix.
