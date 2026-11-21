@@ -1177,7 +1177,7 @@ const discussionFixture = async () => {
     runId: lead.id,
     workspaceId: WORKSPACE,
   };
-  return { principal, threadId };
+  return { principal, teamId, threadId };
 };
 
 test("three rounds wake three members nine times; discussion wakes get no private notes", async () => {
@@ -1480,4 +1480,102 @@ test("discussion reply deduplication is scoped to its own topic", async () => {
       (post) => post.text === "My discussion answer"
     )
   ).toBe(true);
+});
+
+const archive = (teamId: string) =>
+  db
+    .update(teamRows)
+    .set({ archivedAt: START })
+    .where(eq(teamRows.id, teamId))
+    .run();
+
+test("an archived team's room refuses a person's post and keeps clearAttention", async () => {
+  build({ script: { alpha: "on it" } });
+  await addAgents("alpha");
+  const teamId = seedTeam({ members: { agents: ["alpha"], users: ["u1"] } });
+  const threadId = await topicIn(teamId);
+  archive(teamId);
+
+  await expect(say(threadId, "@alpha go")).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  expect(runsOf("alpha")).toHaveLength(0);
+  const cleared = await inbox.clearAttention(user, { threadId });
+  expect(cleared.id).toBe(threadId);
+  expect((await inbox.readThread(user, { threadId })).posts).toHaveLength(0);
+});
+
+test("an archived team's room refuses a run's post", async () => {
+  build({ script: { alpha: null, beta: "hi" } });
+  await addAgents("alpha", "beta");
+  const teamId = seedTeam({
+    members: { agents: ["alpha", "beta"], users: ["u1"] },
+  });
+  const threadId = await topicIn(teamId);
+  const started = await say(threadId, "@alpha go");
+  archive(teamId);
+
+  await expect(
+    say(threadId, "@beta look", runPrincipal("alpha", firstRunId(started.runs)))
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(runsOf("beta")).toHaveLength(0);
+});
+
+test("a reply already running when the team is archived lands and wakes nobody", async () => {
+  build({ script: { alpha: null, beta: "hi" } });
+  await addAgents("alpha", "beta");
+  const teamId = seedTeam({
+    members: { agents: ["alpha", "beta"], users: ["u1"] },
+    rules: "Rule X",
+  });
+  const threadId = await topicIn(teamId);
+  const started = await say(threadId, "@alpha go");
+  const runId = firstRunId(started.runs);
+  archive(teamId);
+
+  await runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    status: "done",
+    text: "@beta please look",
+  });
+
+  expect(await transcript(threadId)).toEqual([
+    { author: "user", runId: null, text: "@alpha go" },
+    { author: agentId("alpha"), runId, text: "@beta please look" },
+  ]);
+  expect(runsOf("beta")).toHaveLength(0);
+});
+
+test("postExternal refuses an archived team", async () => {
+  build();
+  const teamId = seedTeam({ members: { users: ["u1"] } });
+  archive(teamId);
+
+  await expect(
+    inbox.postExternal({
+      alongside: () => [],
+      authorId: "u1",
+      teamId,
+      text: "hello",
+      thread: { kind: "new", title: "Slack" },
+      waker: null,
+      workspaceId: WORKSPACE,
+    })
+  ).rejects.toThrow("Team not found");
+  expect(db.select().from(inboxThreadRows).all()).toHaveLength(0);
+});
+
+test("a discussion running when the team is archived starts no more runs", async () => {
+  const { principal, teamId, threadId } = await discussionFixture();
+  await inbox.startDiscussion(principal, {
+    question: "Discuss",
+    rounds: 3,
+    topic: threadId,
+  });
+  const before = allRuns().length;
+  archive(teamId);
+  nowMs += 10 * 60 * 1000;
+
+  await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+
+  expect(allRuns()).toHaveLength(before);
 });

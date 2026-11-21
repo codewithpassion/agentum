@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type { ApprovalAnswer, QuestionAnswer } from "@repo/protocol/requests";
+import type {
+  ApprovalAnswer,
+  ApprovalDisplay,
+  QuestionAnswer,
+} from "@repo/protocol/requests";
 import {
   a2aSendFields,
   approvalAnswer,
   canSubmitAnswers,
+  currentProposalValue,
   expiryText,
   isConflict,
   mailApprovalFields,
@@ -12,6 +17,7 @@ import {
   type Settled,
   settledFromEvent,
   settledLine,
+  teamProposalFields,
   toggledChoices,
   viewFromOpened,
   viewFromRecord,
@@ -686,5 +692,55 @@ describe("decisions requests", () => {
     expect(settledLine("decisions", { status: "cancelled" }, "Dom")).toBe(
       "Cancelled"
     );
+  });
+});
+
+describe("team proposal", () => {
+  const input = {
+    agentId: "agt_bo",
+    agentName: "Writer Bo",
+    field: "effort" as const,
+    leadName: "Lead Ann",
+    reason: "Drafts run long",
+    value: "low",
+  };
+  const display = (
+    toolName: string,
+    body: ApprovalDisplay["input"] = input
+  ): Parameters<typeof offersAlwaysAllow>[0] => ({
+    input: body,
+    summary: "Lead Ann proposes changing Writer Bo's effort",
+    toolKey: toolName,
+    toolName,
+  });
+
+  test("reads the proposal out of a team_propose_change display", () => {
+    expect(teamProposalFields(display("team_propose_change"))).toEqual(input);
+  });
+
+  test("is null for another tool, or an input that is not a proposal", () => {
+    expect(teamProposalFields(display("mail_send"))).toBeNull();
+    expect(
+      teamProposalFields(display("team_propose_change", "cut off"))
+    ).toBeNull();
+    expect(
+      teamProposalFields(display("team_propose_change", { agentId: "a" }))
+    ).toBeNull();
+  });
+
+  test("never offers Always allow", () => {
+    expect(offersAlwaysAllow(display("team_propose_change"))).toBe(false);
+  });
+
+  test("reads the member's current value, and default for an unset setting", () => {
+    const agent = {
+      instructions: "Write well.",
+      model: "claude-sonnet-5-5",
+      runtimeConfig: { effort: "high" },
+    };
+    expect(currentProposalValue(agent, "instructions")).toBe("Write well.");
+    expect(currentProposalValue(agent, "model")).toBe("claude-sonnet-5-5");
+    expect(currentProposalValue(agent, "effort")).toBe("high");
+    expect(currentProposalValue(agent, "contextBudget")).toBe("default");
   });
 });

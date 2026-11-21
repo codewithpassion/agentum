@@ -26,3 +26,4 @@ a service test with the fake model. An agent at $0.99 of a $1.00 cap runs a drea
 - 2026-11-21: added from the spend walkthrough.
 - 2026-11-21: dispatched.
 - 2026-11-21: dispatcher stopped at the account monthly spend limit (HTTP 429). Work is saved in its worktree. Resume the same dispatcher after the limit resets on Nov 25.
+- 2026-11-21: spend limit reset, same dispatcher resumed.
