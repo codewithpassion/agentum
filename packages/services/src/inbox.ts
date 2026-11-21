@@ -34,6 +34,7 @@ import {
   desc,
   eq,
   gt,
+  gte,
   inArray,
   isNull,
   lt,
@@ -1037,19 +1038,18 @@ export const createInboxService = ({
     target: { id: string },
     room: Room,
     streak: boolean,
-    requestId?: string
+    requestId?: string,
+    quiet = false
   ): Promise<WokenRun | null> => {
+    const stopped = async (reason: StopReason, message?: string) => {
+      if (!quiet) {
+        await recordStop(waker, thread, entry, target.id, reason, message);
+      }
+      return null;
+    };
     // Discussion rounds start runs through here too, so an archive stops them.
     if (await teamArchived(thread)) {
-      await recordStop(
-        waker,
-        thread,
-        entry,
-        target.id,
-        "refused",
-        "The team is archived"
-      );
-      return null;
+      return await stopped("refused", "The team is archived");
     }
     let stop: StopReason | null = null;
     if (streak) {
@@ -1060,8 +1060,7 @@ export const createInboxService = ({
       stop = "budget";
     }
     if (stop) {
-      await recordStop(waker, thread, entry, target.id, stop);
-      return null;
+      return await stopped(stop);
     }
     const digest = await digestFor(thread);
     try {
@@ -1089,15 +1088,7 @@ export const createInboxService = ({
       if (!isServiceError(error)) {
         throw error;
       }
-      await recordStop(
-        waker,
-        thread,
-        entry,
-        target.id,
-        "refused",
-        error.message
-      );
-      return null;
+      return await stopped("refused", error.message);
     }
   };
 
@@ -1230,7 +1221,8 @@ export const createInboxService = ({
   const wakeNoticeAgent = async (
     thread: ThreadRow,
     entry: PostRow,
-    wakeTarget: { agentId: string; asUserId: string }
+    wakeTarget: { agentId: string; asUserId: string },
+    quiet = false
   ): Promise<WokenRun[]> => {
     const [agent] = await db
       .select({ id: agents.id })
@@ -1264,7 +1256,9 @@ export const createInboxService = ({
       entry,
       { id: agent.id },
       await roomOf(thread),
-      false
+      false,
+      undefined,
+      quiet
     );
     return woken ? [woken] : [];
   };
@@ -1309,6 +1303,52 @@ export const createInboxService = ({
       ? await wakeNoticeAgent(thread, written, input.wake)
       : [];
     return { postId: written.id, runs: woken, threadId: thread.id };
+  };
+
+  /**
+   * Wakes the agent again for a notice the system posted earlier, when the
+   * first wake was refused: only when the agent has no run in the thread since
+   * the post. A wake refused again records nothing, so a tick can ask every
+   * minute.
+   */
+  const retryNoticeWake = async (
+    principal: Principal,
+    postId: string,
+    wakeTarget: { agentId: string; asUserId: string }
+  ): Promise<WokenRun[]> => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError(NOTICE_ACTION);
+    }
+    const [entry] = await db
+      .select()
+      .from(inboxPosts)
+      .where(eq(inboxPosts.id, postId))
+      .limit(1);
+    if (!entry) {
+      return [];
+    }
+    const thread = await findThread(entry.threadId, entry.workspaceId);
+    if (!thread || (await teamArchived(thread))) {
+      return [];
+    }
+    const [answered] = await db
+      .select({ id: runRows.id })
+      .from(runRows)
+      .innerJoin(sessions, eq(runRows.sessionId, sessions.id))
+      .where(
+        and(
+          eq(runRows.workspaceId, thread.workspaceId),
+          eq(runRows.agentId, wakeTarget.agentId),
+          eq(sessions.origin, "inbox"),
+          eq(sessions.externalKey, thread.id),
+          gte(runRows.createdAt, entry.createdAt)
+        )
+      )
+      .limit(1);
+    if (answered) {
+      return [];
+    }
+    return await wakeNoticeAgent(thread, entry, wakeTarget, true);
   };
 
   /**
@@ -1492,6 +1532,7 @@ export const createInboxService = ({
     postExternal,
     postNotice,
     readThread,
+    retryNoticeWake,
     startDiscussion,
     stopDiscussion,
     sweepDiscussions,
