@@ -19,7 +19,6 @@ import {
   isRoomMember,
   roomDirectory,
   roomMembers,
-  topicsOfTeam,
   withoutPerson,
 } from "./room-logic.ts";
 import { SlackLinkBadge, useSlackLinkLabel } from "./room-slack-link.tsx";
@@ -50,14 +49,11 @@ export function RoomPage({
   userId,
 }: RoomPageProps) {
   const list = usePolledQuery(
-    () => getTrpc().inbox.listThreads.query(),
+    () => getTrpc().inbox.listThreads.query({ teamId: team.id }),
     initialThreads
   );
   const { refresh: refreshThreads } = list;
-  const topics = useMemo(
-    () => topicsOfTeam(list.data ?? initialThreads, team),
-    [list.data, initialThreads, team]
-  );
+  const topics = list.data ?? initialThreads;
   const directory = useMemo(
     () => roomDirectory({ agents, handles, people }),
     [agents, handles, people]

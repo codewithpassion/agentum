@@ -17,7 +17,7 @@ export const Route = createFileRoute("/_app/teams/$teamId_/room")({
       const [team, agents, threads, me, people] = await Promise.all([
         trpc.teams.get.query({ teamId: params.teamId }),
         trpc.roster.list.query(),
-        trpc.inbox.listThreads.query(),
+        trpc.inbox.listThreads.query({ teamId: params.teamId }),
         trpc.me.query(),
         // Names are a nicety: without them a person shows as "Teammate".
         trpc.members.list.query().catch(() => []),
@@ -53,6 +53,8 @@ function TeamRoomRoute() {
     <RoomPage
       agents={agents}
       handles={handles}
+      // The topic list is polled state seeded from this team's loader data, so another team must remount it.
+      key={team.id}
       onOpenTopic={openTopic}
       people={people}
       team={team}
