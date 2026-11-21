@@ -3,7 +3,7 @@ id: TM.12
 title: "The lead's proposal card says what it proposes"
 milestone: TM
 size: S
-status: ready
+status: done
 depends_on: []
 branch: task/TM.12-the-lead-s-proposal-card-says-what-it-pr
 lane: web-requests
@@ -24,3 +24,4 @@ Check. Component test for the proposal card. Browser: the lead proposes, the own
 - 2026-11-21: dispatcher stopped at the account monthly spend limit (HTTP 429). Work is saved in its worktree. Resume the same dispatcher after the limit resets on Nov 25.
 - 2026-11-21: spend limit reset, same dispatcher resumed.
 - 2026-11-21: ready at f9e8d4cc, review clean with no fix rounds, browser proof passed. Three wording gaps outside the card are listed in docs/reviews/tasks/TM.12.md.
+- 2026-11-21: merged 4463c041, merge check passed. Done.
