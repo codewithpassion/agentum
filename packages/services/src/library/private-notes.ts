@@ -18,7 +18,9 @@ export interface PrivateNotesSession {
  * A run sees them only when its session is private or has origin `ui`, and the
  * session's actor is the person the run works for. Team rooms, Q&A, Slack
  * channels, mail, artifact chats, A2A, routines and triggers are shared, so
- * they get none even when one person started the run.
+ * they get none even when one person started the run. A room session (origin
+ * `inbox`) gets none whatever its `private` flag says, so one already stored
+ * as private stays closed.
  */
 export const privateNotesUserOf = (
   run: { onBehalfOfUserId: string | null },
@@ -26,6 +28,9 @@ export const privateNotesUserOf = (
 ): string | null => {
   const userId = run.onBehalfOfUserId;
   if (userId === null || !session) {
+    return null;
+  }
+  if (session.origin === "inbox") {
     return null;
   }
   const isPersonal = session.private || session.origin === "ui";

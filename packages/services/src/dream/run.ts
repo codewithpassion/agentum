@@ -50,7 +50,7 @@ import type { Judge } from "./steps/judge.ts";
 import { mergeNotes } from "./steps/merge.ts";
 import { type ProcedureDraft, promoteProcedures } from "./steps/promote.ts";
 import { pruneNotes } from "./steps/prune.ts";
-import { reconcileNotes } from "./steps/reconcile.ts";
+import { incomingNote, reconcileNotes } from "./steps/reconcile.ts";
 
 const DATE_LENGTH = 10;
 /** A run still `running` after this long is taken for one that died. */
@@ -278,6 +278,8 @@ export const createDreamRunner = (deps: RunDeps) => {
     });
 
   interface Outcome {
+    /** The notes the plan adds, under the ids it gave them. Questions may name them. */
+    created: MemoryNote[];
     /** The notes once the plan applies, so a question shows the text a merge left. */
     notes: MemoryNote[];
     outside: boolean;
@@ -310,12 +312,23 @@ export const createDreamRunner = (deps: RunDeps) => {
         notes,
         today,
       });
+      // Each add gets its id now, so a question can name a note the plan adds.
+      const created: MemoryNote[] = [];
+      const changes = merged.changes.map((change): DreamPlan[number] => {
+        if (change.action !== "add") {
+          return change;
+        }
+        const noteId = ulid();
+        created.push(incomingNote(change, noteId, today));
+        return { ...change, noteId };
+      });
       const reconciled = await reconcileNotes({
+        incoming: created,
         judge: model.judge,
         notes: merged.notes,
       });
       const pruned = await pruneByScope({
-        adds: merged.changes,
+        adds: changes,
         held: reconciled.held,
         judge: model.judge,
         notes: reconciled.notes,
@@ -346,9 +359,10 @@ export const createDreamRunner = (deps: RunDeps) => {
         throw new ServiceError("invalid", MODEL_FAILED);
       }
       return {
+        created,
         notes: pruned.notes,
         outside: extracted.outside,
-        plan: [...merged.changes, ...reconciled.changes, ...pruned.changes],
+        plan: [...changes, ...reconciled.changes, ...pruned.changes],
         proposals,
         usage: model.usage(),
       };
@@ -432,20 +446,25 @@ export const createDreamRunner = (deps: RunDeps) => {
     );
     const usage = JSON.stringify(thought.usage);
     const known = await openQuestionSets(agent.id);
-    // A question that is already open is not asked again.
+    const held = agent.rules.learnLevel === "ask_first" || thought.outside;
+    const created = new Map(thought.created.map((note) => [note.id, note]));
+    // A question that is already open is not asked again. A held batch is not
+    // in memory yet, so it asks nothing about the notes it would add.
     const plan = thought.plan.filter(
       (change) =>
         change.action !== "question" ||
-        !known.some((ids) => sameIds(ids, change.noteIds))
+        !(
+          known.some((ids) => sameIds(ids, change.noteIds)) ||
+          (held && change.noteIds.some((id) => created.has(id)))
+        )
     );
     const notes = new Map(loaded.notes.map((note) => [note.id, note]));
     const counts = countsOf(plan);
-    const held = agent.rules.learnLevel === "ask_first" || thought.outside;
     const diaryInput = {
       counts,
       held,
       noteText: (id: string) => {
-        const note = notes.get(id);
+        const note = notes.get(id) ?? created.get(id);
         return note && note.userScope === null ? note.text : null;
       },
       plan,
@@ -464,7 +483,14 @@ export const createDreamRunner = (deps: RunDeps) => {
       agent,
       runId,
       plan,
-      held ? notes : new Map(thought.notes.map((note) => [note.id, note]))
+      held
+        ? notes
+        : new Map(
+            [...thought.notes, ...created.values()].map((note) => [
+              note.id,
+              note,
+            ])
+          )
     );
     await store({
       agent,

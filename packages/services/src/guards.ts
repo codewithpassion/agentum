@@ -59,6 +59,12 @@ export const effectiveOwner = (agent: {
 const isOrgAdmin = (user: UserPrincipal): boolean =>
   user.isAdmin === true || user.apiKey?.access === "admin";
 
+/** True for an org admin and for the agent's owner. */
+export const isAgentOwnerOrAdmin = (
+  user: UserPrincipal,
+  agent: { createdBy: string; ownerUserId: string | null }
+): boolean => isOrgAdmin(user) || user.userId === effectiveOwner(agent);
+
 /**
  * An org admin or the agent's owner may change the agent's credentials, apps,
  * allowed tools, sign-in mode, Slack app and secret grants. An admin is a
@@ -70,7 +76,7 @@ export const requireAgentOwnerOrAdmin = (
   agent: { createdBy: string; ownerUserId: string | null },
   action: string
 ): void => {
-  if (!isOrgAdmin(user) && user.userId !== effectiveOwner(agent)) {
+  if (!isAgentOwnerOrAdmin(user, agent)) {
     throw new ForbiddenError(action);
   }
 };

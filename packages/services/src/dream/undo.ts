@@ -7,8 +7,9 @@ import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { dreamQuestions, dreamRuns } from "@repo/db/schema/dreams";
 import { memoryChanges } from "@repo/db/schema/memory";
+import { skills, skillVersions } from "@repo/db/schema/skills";
 import type { DreamDecision } from "@repo/db/shared";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNull, lt } from "drizzle-orm";
 import { ServiceError } from "../errors.ts";
 import { memoryFolderOf } from "../library/memory-paths.ts";
 import {
@@ -27,6 +28,8 @@ import {
   loadEveryMemoryFile,
 } from "../memory/files.ts";
 import type { Clock } from "../runs/types.ts";
+import type { SkillsStoreService } from "../skills-store.ts";
+import type { Principal } from "../workspaces.ts";
 import { applyRows, pathOfRow } from "./changeset.ts";
 import { readOptions } from "./question-options.ts";
 import { type DreamAgent, dreamPrincipal, type RunRow, toRun } from "./rows.ts";
@@ -39,6 +42,7 @@ export interface UndoDeps {
   clock: Clock;
   db: Database;
   library: DreamMemoryLibrary;
+  skillsStore: Pick<SkillsStoreService, "reject">;
 }
 
 const staleMemory = () =>
@@ -56,7 +60,13 @@ const notesIn = (files: MemoryFiles) =>
     return parsed.ok ? parsed.notes : [];
   });
 
-export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
+export const createDreamUndo = ({
+  atomic,
+  clock,
+  db,
+  library,
+  skillsStore,
+}: UndoDeps) => {
   const rowsOf = (runId: string, status: "applied" | "held") =>
     db
       .select()
@@ -168,10 +178,56 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
     }
   };
 
+  /**
+   * Rejects the skills this dream proposed that nobody has answered. A
+   * proposal records no dream, so they are the agent's own first versions made
+   * while this dream was the latest: from its start to the next dream's.
+   */
+  const withdrawProposals = async (
+    run: RunRow,
+    agent: DreamAgent,
+    principal: Principal
+  ): Promise<void> => {
+    const [next] = await db
+      .select({ startedAt: dreamRuns.startedAt })
+      .from(dreamRuns)
+      .where(
+        and(
+          eq(dreamRuns.agentId, agent.id),
+          gt(dreamRuns.startedAt, run.startedAt)
+        )
+      )
+      .orderBy(asc(dreamRuns.startedAt))
+      .limit(1);
+    const proposed = await db
+      .select({ number: skillVersions.number, skillId: skillVersions.skillId })
+      .from(skillVersions)
+      .innerJoin(skills, eq(skills.id, skillVersions.skillId))
+      .where(
+        and(
+          eq(skills.ownerAgentId, agent.id),
+          eq(skillVersions.workspaceId, run.workspaceId),
+          eq(skillVersions.authorKind, "agent"),
+          eq(skillVersions.authorId, agent.id),
+          eq(skillVersions.status, "proposed"),
+          // A dream writes with no run; a run's own proposal is not this dream's.
+          isNull(skillVersions.authorRunId),
+          eq(skillVersions.number, 1),
+          gte(skillVersions.createdAt, run.startedAt),
+          next ? lt(skillVersions.createdAt, next.startedAt) : undefined
+        )
+      );
+    for (const { number, skillId } of proposed) {
+      // biome-ignore lint/performance/noAwaitInLoops: one skill at a time
+      await skillsStore.reject(principal, { skillId, version: number });
+    }
+  };
+
   const undo = async (
     run: RunRow,
     agent: DreamAgent,
-    userId: string
+    userId: string,
+    caller: Principal
   ): Promise<void> => {
     if (run.status !== "done" || run.resultVersion === null) {
       throw new ServiceError(
@@ -228,16 +284,17 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
     ];
     if (changedPaths(loaded, next).length === 0) {
       await atomic(statements());
-      return;
+    } else {
+      await commitFiles({
+        library,
+        loaded,
+        next,
+        principal,
+        slug: agent.slug,
+        statements,
+      });
     }
-    await commitFiles({
-      library,
-      loaded,
-      next,
-      principal,
-      slug: agent.slug,
-      statements,
-    });
+    await withdrawProposals(run, agent, caller);
   };
 
   const decide = async (

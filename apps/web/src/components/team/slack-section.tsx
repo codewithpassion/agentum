@@ -22,7 +22,9 @@ const LOADING_CHANNELS = "Loading channels...";
 const NO_SLACK_APP =
   "No agent of this team has a Slack app yet. Add a Slack app to an agent, then come back here.";
 const NO_CHANNELS =
-  "The lead's Slack app is in no channels. Invite it to a channel in Slack first.";
+  "No channel to link. You can link a channel you are in on Slack when the lead's Slack app is in it too. Join or invite the app in Slack first.";
+const PRIVATE_NOTE =
+  "Only an admin can link a private channel, because its messages would land in a room every workspace member can read.";
 const CHANNEL_LABEL = "Slack channel";
 const CHANNEL_HELP =
   "Messages in the channel appear in the team room, and room posts go to the channel. A team links one channel, and a channel links one team.";
@@ -147,10 +149,16 @@ function UnlinkedRoom({
   if (channels.slackTeamId === null) {
     return <MutedText>{NO_SLACK_APP}</MutedText>;
   }
-  if (channels.channels.length === 0) {
-    return <MutedText>{NO_CHANNELS}</MutedText>;
-  }
-  return <ChannelPicker busy={busy} channels={channels} onLink={onLink} />;
+  return (
+    <div className="flex flex-col gap-3">
+      {channels.channels.length === 0 ? (
+        <MutedText>{NO_CHANNELS}</MutedText>
+      ) : (
+        <ChannelPicker busy={busy} channels={channels} onLink={onLink} />
+      )}
+      <MutedText>{PRIVATE_NOTE}</MutedText>
+    </div>
+  );
 }
 
 function MissingApps({ missing }: { missing: readonly MissingSlackApp[] }) {

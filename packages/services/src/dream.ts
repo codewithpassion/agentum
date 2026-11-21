@@ -120,7 +120,7 @@ export interface DreamDeps {
   managedKeys: Pick<ManagedKeysService, "resolve">;
   /** A person's answer to a question forgets the notes it did not keep, as that person. */
   memory: Pick<MemoryService, "forget">;
-  skillsStore: Pick<SkillsStoreService, "list" | "proposeForAgent">;
+  skillsStore: Pick<SkillsStoreService, "list" | "proposeForAgent" | "reject">;
   /** A team dream's cost counts toward the workspace's weekly cap: it asks before it runs and tells after. */
   spend?: {
     enforceWorkspaceCap: (workspaceId: string) => Promise<void>;
@@ -298,7 +298,7 @@ export const createDreamService = (deps: DreamDeps) => {
       workspaceId,
       run.agentId
     );
-    await undoer.undo(run, agent, user.userId);
+    await undoer.undo(run, agent, user.userId, principal);
     return await oneWithHeld(await runIn(workspaceId, dreamRunId));
   };
 

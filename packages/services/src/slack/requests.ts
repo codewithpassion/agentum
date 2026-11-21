@@ -21,7 +21,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { findAgent } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
-import { isServiceError } from "../errors.ts";
+import { ERROR_REASON, isServiceError } from "../errors.ts";
 import type { EventRecord, EventsService } from "../events.ts";
 import { isA2aApproval } from "../mail/approval.ts";
 import {
@@ -250,7 +250,13 @@ export const createSlackRequests = ({
       threadId,
       workspaceId: run.workspaceId,
     });
-    const threadTs = room ? await topicRootTs(db, { threadId }) : null;
+    const threadTs = room
+      ? await topicRootTs(db, {
+          channelId: room.channelId,
+          slackTeamId: room.slackTeamId,
+          threadId,
+        })
+      : null;
     const app = room
       ? await findInstalledApp(db, {
           agentId: run.agentId,
@@ -629,7 +635,8 @@ export const createSlackRequests = ({
   const refuse = async (
     app: SlackAppRow,
     payload: unknown,
-    slackUserId: string
+    slackUserId: string,
+    text = CANT_ANSWER
   ): Promise<void> => {
     const place = placeSchema.safeParse(payload);
     const channel =
@@ -641,7 +648,7 @@ export const createSlackRequests = ({
     await withRetry(clock, () =>
       client.postEphemeral({
         channel,
-        text: CANT_ANSWER,
+        text,
         threadTs:
           place.data?.message?.thread_ts ?? place.data?.container?.thread_ts,
         user: slackUserId,
@@ -800,7 +807,20 @@ export const createSlackRequests = ({
         } else if (access.kind === "settled") {
           await settle(row.id);
         } else if (parsed.ok) {
-          await answer(access.principal, row.id, parsed);
+          try {
+            await answer(access.principal, row.id, parsed);
+          } catch (error) {
+            // The card stays open: only the person who pressed sees why.
+            if (
+              !(
+                isServiceError(error) &&
+                error.reason === ERROR_REASON.alwaysAllowOwnerOnly
+              )
+            ) {
+              throw error;
+            }
+            await refuse(app, payload, slackUserId, error.message);
+          }
         } else {
           await openModal(app, row, parsed.triggerId);
         }

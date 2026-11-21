@@ -1629,6 +1629,8 @@ export type DreamPlanChange =
   | {
       action: "add";
       kind: MemoryNoteKind;
+      /** The id the note is written under, so a question in the same plan can name it. A plan from outside a dream may leave it out, and the row gets one. */
+      noteId?: string;
       source: MemorySource | null;
       text: string;
       userScope: string | null;

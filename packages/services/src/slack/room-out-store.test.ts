@@ -114,21 +114,29 @@ const insertRoomMessage = (row: {
   postId: string;
   threadTs: string | null;
   ts: string;
+  channelId?: string;
+  slackTeamId?: string;
 }) =>
   db
     .insert(slackRoomMessages)
     .values({
-      channelId: CHANNEL,
+      channelId: row.channelId ?? CHANNEL,
       createdAt: row.createdAt,
       direction: "in",
       id: row.id,
       postId: row.postId,
-      slackTeamId: SLACK_TEAM,
+      slackTeamId: row.slackTeamId ?? SLACK_TEAM,
       threadTs: row.threadTs,
       ts: row.ts,
       workspaceId: W1,
     })
     .run();
+
+const rootOf = (
+  threadId: string,
+  channelId = CHANNEL,
+  slackTeamId = SLACK_TEAM
+) => topicRootTs(db, { channelId, slackTeamId, threadId });
 
 beforeEach(() => {
   db = migrated();
@@ -482,7 +490,7 @@ test("roomMessageOfPost returns null for a post with no room message", async () 
 });
 
 test("topicRootTs returns null for a topic with no room messages", async () => {
-  expect(await topicRootTs(db, { threadId: TOPIC_A })).toBeNull();
+  expect(await rootOf(TOPIC_A)).toBeNull();
 });
 
 test("topicRootTs returns the ts of a top-level first message", async () => {
@@ -494,7 +502,7 @@ test("topicRootTs returns the ts of a top-level first message", async () => {
     ts: THREAD_A,
   });
 
-  expect(await topicRootTs(db, { threadId: TOPIC_A })).toBe(THREAD_A);
+  expect(await rootOf(TOPIC_A)).toBe(THREAD_A);
 });
 
 test("topicRootTs returns the thread_ts of a first message that is a reply", async () => {
@@ -506,7 +514,7 @@ test("topicRootTs returns the thread_ts of a first message that is a reply", asy
     ts: REPLY_A,
   });
 
-  expect(await topicRootTs(db, { threadId: TOPIC_A })).toBe(THREAD_A);
+  expect(await rootOf(TOPIC_A)).toBe(THREAD_A);
 });
 
 test("topicRootTs takes the earliest row even when it was inserted last", async () => {
@@ -525,7 +533,7 @@ test("topicRootTs takes the earliest row even when it was inserted last", async 
     ts: THREAD_A,
   });
 
-  expect(await topicRootTs(db, { threadId: TOPIC_A })).toBe(THREAD_A);
+  expect(await rootOf(TOPIC_A)).toBe(THREAD_A);
 });
 
 test("topicRootTs ignores the room messages of another topic", async () => {
@@ -544,7 +552,30 @@ test("topicRootTs ignores the room messages of another topic", async () => {
     ts: THREAD_A,
   });
 
-  expect(await topicRootTs(db, { threadId: TOPIC_A })).toBe(THREAD_A);
+  expect(await rootOf(TOPIC_A)).toBe(THREAD_A);
+});
+
+test("topicRootTs ignores messages from another channel or Slack workspace", async () => {
+  insertRoomMessage({
+    channelId: "C0OLD",
+    createdAt: T0,
+    id: "m-old-channel",
+    postId: POST_A,
+    threadTs: null,
+    ts: THREAD_B,
+  });
+  insertRoomMessage({
+    createdAt: T0,
+    id: "m-old-team",
+    postId: POST_A,
+    slackTeamId: OTHER_SLACK_TEAM,
+    threadTs: null,
+    ts: REPLY_A,
+  });
+
+  expect(await rootOf(TOPIC_A)).toBeNull();
+  expect(await rootOf(TOPIC_A, "C0OLD")).toBe(THREAD_B);
+  expect(await rootOf(TOPIC_A, CHANNEL, OTHER_SLACK_TEAM)).toBe(REPLY_A);
 });
 
 test("memberSenderApps returns only installed apps", async () => {
