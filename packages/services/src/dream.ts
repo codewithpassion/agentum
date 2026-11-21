@@ -57,6 +57,7 @@ import { isServiceError, notFound, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import {
   readableWorkspace,
+  requireAgentDecider,
   requireAgentOwnerOrAdmin,
   requireSession,
 } from "./guards.ts";
@@ -213,6 +214,26 @@ export const createDreamService = (deps: DreamDeps) => {
     return { agent, user };
   };
 
+  /** The owner, the backup owner or an org admin, on a browser session: who may decide a held dream batch. */
+  const deciderSession = async (
+    principal: Principal,
+    workspaceId: string,
+    agentId: string
+  ) => {
+    const user = requireSession(principal, DREAM_WRITE);
+    const agent = await loadDreamAgent(db, agentId, workspaceId);
+    requireAgentDecider(
+      user,
+      {
+        backupUserId: agent.backupUserId,
+        createdBy: agent.createdBy,
+        ownerUserId: agent.ownerUserId,
+      },
+      DREAM_WRITE
+    );
+    return { agent, user };
+  };
+
   /** The team's owner or an org admin, on a browser session: who may start, undo or answer for a team dream. */
   const teamOwnerSession = async (
     principal: Principal,
@@ -355,7 +376,7 @@ export const createDreamService = (deps: DreamDeps) => {
         "A team dream applies at once, so it holds nothing to approve"
       );
     }
-    const { agent, user } = await ownerSession(
+    const { agent, user } = await deciderSession(
       principal,
       workspaceId,
       run.agentId
