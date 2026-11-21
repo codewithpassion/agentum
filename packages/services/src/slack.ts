@@ -245,9 +245,10 @@ export const createSlackService = ({
    * Matches a Slack user with no link to an Agentum account by their Slack
    * email: a Clerk user with that verified address who belongs to the
    * workspace's organisation. A match writes the link (a repeat is a no-op,
-   * so every copy of one message may run this). With `ownTeamOnly`, a user
-   * of another Slack team (Slack Connect) is not matched: that organisation
-   * controls their email address, not this one.
+   * so every copy of one message may run this). Both the room and the
+   * per-agent path pass `ownTeamOnly`: a user of another Slack team (Slack
+   * Connect) is not matched, because that organisation controls their email
+   * address, not this one.
    */
   const matchByEmail = async (
     app: SlackAppRow,
@@ -303,9 +304,12 @@ export const createSlackService = ({
    * to send again. Anyone else is told to ask for access.
    */
   const meetUnlinkedSender = async (app: SlackAppRow, event: Mention) => {
-    const match = await matchByEmail(app, event.userId, { ownTeamOnly: false });
+    const match = await matchByEmail(app, event.userId, { ownTeamOnly: true });
     if (match.kind === "linked") {
       await replyInThread(app, event, LINKED_REPLY);
+      return;
+    }
+    if (match.kind === "external") {
       return;
     }
     await replyInThread(
