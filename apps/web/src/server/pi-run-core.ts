@@ -421,6 +421,16 @@ export const createRunCore = ({
     }
   };
 
+  /**
+   * The platform ended the run, so the last flush was refused. Sends one completion that carries only the run's usage, read afresh because the slice of the last flush lacks the turn Pi committed on its abort. The platform records the usage on the ended run and changes nothing else; a refusal is the end, as it is for any completion.
+   */
+  const reportUsageOfEndedRun = async (runId: string): Promise<void> => {
+    const usage = usageOf(await sliceOf(runId));
+    if (usage) {
+      await completeRun(runId, { status: "failed", usage });
+    }
+  };
+
   const work = async (runId: string): Promise<void> => {
     const run = await load(runId);
     if (run?.state !== "active") {
@@ -480,7 +490,9 @@ export const createRunCore = ({
         // The run stays active: the next start or wake reports it.
         return;
       }
-      if (!gone) {
+      if (gone) {
+        await reportUsageOfEndedRun(runId);
+      } else {
         const done = await completeRun(
           runId,
           await finalResultOf(runId, outcome, slice, limit)

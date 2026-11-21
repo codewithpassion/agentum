@@ -3060,6 +3060,23 @@ describe("a run's usage", () => {
     expect(usageOfRun(runId)?.costUsd).toBe(0.5);
   });
 
+  test("a cancelled run records what its session used before the session closes", async () => {
+    const { runId } = await start(dom);
+    gateway.turns = [[gateway.running()]];
+    await managed.step(runId);
+    gateway.usage = SESSION_USAGE;
+
+    await runs.cancelRun(dom, runId);
+    await managed.interrupt(runId);
+
+    expect(runRow(runId)?.status).toBe("cancelled");
+    expect(usageOfRun(runId)).toMatchObject({
+      costUsd: 0.5,
+      inputTokens: 1000,
+      outputTokens: 200,
+    });
+  });
+
   test("a run whose polls keep failing records what its session used", async () => {
     const { runId } = await start(dom);
     gateway.turns = [[gateway.running()]];
