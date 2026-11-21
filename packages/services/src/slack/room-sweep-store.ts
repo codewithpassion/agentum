@@ -5,7 +5,6 @@ import {
   inboxThreadMembers,
   inboxThreads,
 } from "@repo/db/schema/inbox";
-import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { slackRoomMessages, teamSlackLinks } from "@repo/db/schema/slack";
 import { teams } from "@repo/db/schema/teams";
@@ -22,6 +21,7 @@ import {
   notExists,
   sql,
 } from "drizzle-orm";
+import { encodeTime } from "ulidx";
 
 /** The most posts one sweep returns. */
 export const SWEEP_LIMIT = 50;
@@ -32,8 +32,25 @@ export interface SweepWindow {
   before: string;
 }
 
+const ULID_TIME_LENGTH = 10;
+const ULID_RANDOM_LENGTH = 16;
+/** A post id is written a little after its `created_at`, so the id bound starts a minute early. */
+const ID_SLACK_MS = 60_000;
+
+/**
+ * Post ids are ULIDs, so the window also bounds the primary key. That keeps the
+ * sweep from reading every post there is: `created_at` has no index.
+ */
 const postsInWindow = ({ after, before }: SweepWindow) =>
-  and(gt(inboxPosts.createdAt, after), lte(inboxPosts.createdAt, before));
+  and(
+    gt(
+      inboxPosts.id,
+      encodeTime(Date.parse(after) - ID_SLACK_MS, ULID_TIME_LENGTH) +
+        "0".repeat(ULID_RANDOM_LENGTH)
+    ),
+    gt(inboxPosts.createdAt, after),
+    lte(inboxPosts.createdAt, before)
+  );
 
 /**
  * The post's thread belongs to an unarchived team that had a Slack link when
@@ -57,8 +74,8 @@ const linkedRoomAtPost = (db: Database) =>
   );
 
 /**
- * Posts a person wrote in Slack that no wake has seen: the run that answers
- * them started after they were posted. Newest first.
+ * Posts a person wrote in Slack that no wake has seen: no run started in the
+ * topic since they were posted, and no wake recorded a stop. Newest first.
  */
 export const lostInboundPosts = async (
   db: Database,
@@ -85,17 +102,17 @@ export const lostInboundPosts = async (
               )
             )
         ),
+        // A run is created in the same write that moves its session's `lastRunAt`.
         notExists(
           db
-            .select({ id: runs.id })
-            .from(runs)
-            .innerJoin(sessions, eq(sessions.id, runs.sessionId))
+            .select({ id: sessions.id })
+            .from(sessions)
             .where(
               and(
                 eq(sessions.origin, "inbox"),
                 eq(sessions.externalKey, inboxPosts.threadId),
                 eq(sessions.workspaceId, inboxPosts.workspaceId),
-                gte(runs.createdAt, inboxPosts.createdAt)
+                gte(sessions.lastRunAt, inboxPosts.createdAt)
               )
             )
         ),

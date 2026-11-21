@@ -115,9 +115,8 @@ const insertInboundPost = (options: PostOptions = {}) => {
   return id;
 };
 
-const insertRun = (id: string, createdAt: string) =>
-  db
-    .insert(runs)
+const insertRun = (id: string, createdAt: string) => {
+  db.insert(runs)
     .values({
       actorId: "u1",
       actorKind: "user",
@@ -130,6 +129,12 @@ const insertRun = (id: string, createdAt: string) =>
       workspaceId: W1,
     })
     .run();
+  // Starting a run moves its session's lastRunAt in the same write.
+  db.update(sessions)
+    .set({ lastRunAt: createdAt })
+    .where(eq(sessions.id, "session-thread"))
+    .run();
+};
 
 beforeEach(() => {
   db = migrated();

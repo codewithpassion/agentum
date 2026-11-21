@@ -20,6 +20,11 @@ const MINUTE_MS = 60_000;
 export const ROOM_SWEEP_GRACE_MS = 2 * MINUTE_MS;
 /** Older posts are left alone: a post the sweep cannot finish is not retried forever. */
 export const ROOM_SWEEP_WINDOW_MS = 60 * MINUTE_MS;
+/**
+ * The sweep stops taking up posts after this long, so it ends before the next
+ * tick starts and two sweeps do not work on the same post.
+ */
+export const ROOM_SWEEP_BUDGET_MS = 45_000;
 
 export interface RoomSweepOptions {
   clock: Clock;
@@ -30,7 +35,7 @@ export interface RoomSweepOptions {
   wake: (principal: Principal, postId: string) => Promise<unknown>;
 }
 
-/** How many posts the sweep took up. */
+/** How many posts the sweep took up (it does not say whether each succeeded). */
 export interface RoomSweepResult {
   sent: number;
   woken: number;
@@ -47,13 +52,19 @@ export const createRoomSweep = ({
       throw new ForbiddenError(SWEEP_ACTION);
     }
     const now = clock.now().getTime();
+    const outOfTime = () => clock.now().getTime() - now > ROOM_SWEEP_BUDGET_MS;
     const window = {
       after: new Date(now - ROOM_SWEEP_WINDOW_MS).toISOString(),
       before: new Date(now - ROOM_SWEEP_GRACE_MS).toISOString(),
     };
     // Oldest first: the first post of a topic opens its Slack thread.
+    const result: RoomSweepResult = { sent: 0, woken: 0 };
     const unsent = (await unsentRoomPosts(db, window)).reverse();
     for (const postId of unsent) {
+      if (outOfTime()) {
+        break;
+      }
+      result.sent += 1;
       try {
         // biome-ignore lint/performance/noAwaitInLoops: a send reads the thread root the one before it wrote
         await send(postId);
@@ -63,6 +74,10 @@ export const createRoomSweep = ({
     }
     const lost = (await lostInboundPosts(db, window)).reverse();
     for (const postId of lost) {
+      if (outOfTime()) {
+        break;
+      }
+      result.woken += 1;
       try {
         // biome-ignore lint/performance/noAwaitInLoops: a wake can post and wake again, so they stay in order
         await wake(principal, postId);
@@ -70,7 +85,7 @@ export const createRoomSweep = ({
         console.error("Slack room sweep wake failed", error);
       }
     }
-    return { sent: unsent.length, woken: lost.length };
+    return result;
   };
 
   return { sweep };

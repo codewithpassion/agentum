@@ -845,6 +845,9 @@ test("the minute tick sends a room post whose deferred send was lost, once", asy
     threadId: topic.id,
     workspaceId,
   });
+  // A tick inside the two-minute grace leaves a post that may still be in flight alone.
+  await runTick(tickJobs, { clock, services: composed.services });
+  expect(fake.messages.slice(before)).toHaveLength(0);
   await tick();
 
   const sent = fake.messages.slice(before);
