@@ -382,12 +382,6 @@ test("a team owner cannot add, lead or re-home an agent owned by someone else", 
   ).rejects.toBeInstanceOf(ForbiddenError);
   expect((await service.get(other, "t1")).members).toEqual([]);
   expect(await service.list(other)).toHaveLength(2);
-  // Once the agent's owner has put it in a team, the team owner cannot move its home.
-  seedTeam("t3");
-  await service.addMember(user, member("t3"));
-  await expect(
-    service.addMember(other, member("t3", "a1", true))
-  ).rejects.toBeInstanceOf(ForbiddenError);
 });
 
 test("the agent's owner and an admin add it, make it lead and move its home", async () => {

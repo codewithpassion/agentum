@@ -560,7 +560,7 @@ export const createTeamsService = ({
         )
       );
 
-  /** The team owner may remove anyone; an agent's owner may take it out of any team. */
+  /** The team owner or an admin may remove anyone; an agent's owner may take it out of any team. */
   const removableFrom = async (
     principal: Principal,
     input: TeamMemberRefInput
