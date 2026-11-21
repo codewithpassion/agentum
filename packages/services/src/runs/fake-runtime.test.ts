@@ -643,10 +643,10 @@ const leadRoom = async () => {
 test("a lead's room run with assign:@handle posts to the room through /mcp with its run token", async () => {
   const { calls, run } = await leadRoom();
 
-  const { events, summary } = await run("@maya sort out billing assign:@scout");
+  const { events, summary } = await run("@maya sort out billing assign:scout");
 
   expect(summary).toMatchObject({
-    resultText: "Assigned this to @scout.",
+    resultText: "Assigned this to scout.",
     status: "done",
   });
   expect(calls).toHaveLength(1);

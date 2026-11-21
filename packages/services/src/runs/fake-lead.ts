@@ -8,7 +8,9 @@ import type { ProxyAccess, ToolRunEvent, ToolRunResult } from "./fake-tool.ts";
  * they do for a real lead. Failures come back as reply text, never as a throw.
  *
  * Two markers in the post text drive it:
- * - `assign:@handle` calls `team_post` in the room to wake that member.
+ * - `assign:handle` calls `team_post` in the room to wake that member. Write it
+ *   without the `@`: an `@handle` in the person's post would wake that member
+ *   itself, and the lead would never run.
  * - `team_propose_change:<field>=<value>` reads `team_members`, then calls
  *   `team_propose_change` for a member named with an `@handle` in the text, or
  *   the first member agent that is not the lead.
@@ -23,9 +25,9 @@ export interface LeadRunInput {
   threadId: string;
 }
 
-const ASSIGN_MARKER = /assign:@([A-Za-z0-9_-]+)/;
+const ASSIGN_MARKER = /assign:@?([A-Za-z0-9_-]+)/;
 const PROPOSE_MARKER = /team_propose_change:([A-Za-z]+)=([^\n]+)/;
-const ASSIGN_MARKER_ALL = /assign:@[A-Za-z0-9_-]+/g;
+const ASSIGN_MARKER_ALL = /assign:@?[A-Za-z0-9_-]+/g;
 const PROPOSE_MARKER_ALL = /team_propose_change:[^\n]*/g;
 const MENTION = /@([A-Za-z0-9_-]+)/g;
 // The wake input is the post text, then a tail that starts with this line. The
@@ -212,7 +214,7 @@ const assign = async (run: Run, handle: string, text: string) => {
     topic: run.input.threadId,
   });
   return result.ok
-    ? `Assigned this to @${handle}.`
+    ? `Assigned this to ${handle}.`
     : `team_post failed: ${clip(result.text)}`;
 };
 
@@ -228,11 +230,12 @@ const propose = async (
   }
   const agents = membersOf(members.data);
   const mentioned = new Set(
-    [...text.matchAll(MENTION)].map((match) => match[1])
+    [...text.matchAll(MENTION)].map((match) => match[1]?.toLowerCase())
   );
   const target =
-    agents.find((member) => member.handle && mentioned.has(member.handle)) ??
-    agents[0];
+    agents.find(
+      (member) => member.handle && mentioned.has(member.handle.toLowerCase())
+    ) ?? agents[0];
   if (!target) {
     return NO_MEMBER;
   }
