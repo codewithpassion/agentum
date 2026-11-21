@@ -840,6 +840,23 @@ test("a limited topic is hidden from everyone who is not in it", async () => {
   expect(runsOf("beta")).toEqual([]);
 });
 
+test("readThread says who a limited topic is limited to, and nobody for an open one", async () => {
+  build({ script: { alpha: null } });
+  await addAgents("alpha");
+  const teamId = seedTeam({
+    members: { agents: ["alpha"], users: ["u1", "u2"] },
+  });
+  const limited = await topicIn(teamId, ["u1"]);
+  const open = await topicIn(teamId);
+
+  expect(
+    (await inbox.readThread(user, { threadId: limited })).limitedTo
+  ).toEqual([{ id: "u1", kind: "user" }]);
+  expect((await inbox.readThread(user, { threadId: open })).limitedTo).toEqual(
+    []
+  );
+});
+
 test("a limited topic's member agent is woken and can read it", async () => {
   build({ script: { alpha: null } });
   await addAgents("alpha");

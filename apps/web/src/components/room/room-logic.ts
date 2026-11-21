@@ -9,6 +9,7 @@ import {
   memberKey,
   type RoomDirectory,
   type RoomMember,
+  type RoomMemberKind,
 } from "./room-types.ts";
 
 export interface RoomAgentInput {
@@ -188,6 +189,24 @@ export const memberOfPost = (
 export const authorName = (member: RoomMember, userId: string): string =>
   member.kind === "user" && member.id === userId ? "You" : member.name;
 
+/**
+ * The members who are in a topic. An open topic has everyone in the team. A
+ * limited topic has only the members it is limited to.
+ */
+export const membersInTopic = (
+  members: readonly RoomMember[],
+  limitedTo: readonly { id: string; kind: RoomMemberKind }[]
+): RoomMember[] => {
+  if (limitedTo.length === 0) {
+    return [...members];
+  }
+  const keys = new Set(limitedTo.map((one) => memberKey(one.kind, one.id)));
+  return members.filter((member) =>
+    keys.has(memberKey(member.kind, member.id))
+  );
+};
+
+/** Pass the members who are in the topic, so nobody outside it is named. */
 export const assignedTo = (
   post: Pick<InboxPost, "authorId" | "authorKind" | "text">,
   leadAgentId: string | null,

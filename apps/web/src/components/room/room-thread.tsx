@@ -11,6 +11,7 @@ import {
   assignedTo,
   authorName,
   memberOfPost,
+  membersInTopic,
   withoutPerson,
 } from "./room-logic.ts";
 import { RoomPost } from "./room-post.tsx";
@@ -65,6 +66,12 @@ export function RoomThread({
   const mentionable = useMemo(
     () => withoutPerson(members, userId),
     [members, userId]
+  );
+
+  const limitedTo = view.data?.limitedTo;
+  const inTopic = useMemo(
+    () => membersInTopic(members, limitedTo ?? []),
+    [members, limitedTo]
   );
 
   const handleSent = useCallback(() => {
@@ -168,7 +175,7 @@ export function RoomThread({
             const author = memberOfPost(post, directory);
             return (
               <RoomPost
-                assigned={assignedTo(post, team.leadAgentId, members)}
+                assigned={assignedTo(post, team.leadAgentId, inTopic)}
                 author={author}
                 authorLabel={authorName(author, userId)}
                 files={files}

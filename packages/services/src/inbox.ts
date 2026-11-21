@@ -26,6 +26,7 @@ import {
   EVERYONE_TEAM_SLUG,
   type InboxAuthorKind,
   TEAM_MEMBER_KINDS,
+  type TeamMemberKind,
 } from "@repo/db/shared";
 import {
   and,
@@ -167,6 +168,8 @@ export interface PostRecord {
 
 export interface ThreadView {
   discussion: { id: string; round: number; rounds: number } | null;
+  /** Who a limited topic is limited to. Empty for a topic open to its whole team. */
+  limitedTo: { id: string; kind: TeamMemberKind }[];
   posts: PostRecord[];
   thread: ThreadRecord;
 }
@@ -594,6 +597,13 @@ export const createInboxService = ({
       .orderBy(desc(inboxPosts.id))
       .limit(THREAD_READ_LIMIT);
     const discussion = await runningDiscussion(thread.id);
+    const limitedTo = await db
+      .select({
+        id: inboxThreadMembers.memberId,
+        kind: inboxThreadMembers.memberKind,
+      })
+      .from(inboxThreadMembers)
+      .where(eq(inboxThreadMembers.threadId, thread.id));
     return {
       discussion: discussion
         ? {
@@ -602,6 +612,7 @@ export const createInboxService = ({
             rounds: discussion.rounds,
           }
         : null,
+      limitedTo,
       posts: await toPosts(member, thread.id, rows.reverse()),
       thread: toThread(thread),
     };
