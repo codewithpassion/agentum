@@ -36,6 +36,7 @@ import type { RunTokenClaims } from "../run-tokens.ts";
 import { secretsGuidance } from "../secrets/guidance.ts";
 import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
 import type { SecretsService } from "../secrets.ts";
+import { leadRoomOf } from "../teams/room-run.ts";
 import type { Principal } from "../workspaces.ts";
 import { requireOrdinaryMachineRun } from "./guest-scope.ts";
 import { buildLaunchContext } from "./launch-context.ts";
@@ -140,6 +141,16 @@ const assertCurrentApprovalProtocol = async (
     throw new ForbiddenError("runs.currentApprovalsRequired");
   }
 };
+/** A lead's room run must not start on a daemon that would ignore `teamRoom` and give it every tool. */
+const assertTeamRoomProtocol = async (
+  db: Database,
+  run: RunRecord,
+  supported?: boolean
+) => {
+  if (!supported && (await leadRoomOf(db, run)) !== null) {
+    throw new ForbiddenError("runs.teamRoomRequired");
+  }
+};
 export const claimForMachine = async (
   deps: MachineClaimDeps,
   principal: Principal,
@@ -150,6 +161,7 @@ export const claimForMachine = async (
     currentApprovalsForDaemon?: boolean;
     requestsForDaemon?: boolean;
     questionsLaterForDaemon?: boolean;
+    teamRoomForDaemon?: boolean;
     platformUrl: string;
   }
 ): Promise<MachineClaim> => {
@@ -182,6 +194,7 @@ export const claimForMachine = async (
     run,
     supportsCurrentApprovals(options)
   );
+  await assertTeamRoomProtocol(db, run, options.teamRoomForDaemon);
   const now = deps.now();
   const runToken = await deps.signToken({
     agentId: run.agentId,

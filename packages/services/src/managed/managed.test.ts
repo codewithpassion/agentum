@@ -1188,6 +1188,27 @@ describe("a lead's team-room run", () => {
     expect(sessionOf(room.runId, "room")?.overrides?.teamRoom).toBe(true);
     expect(sessionOf(ui.runId, "ui")?.overrides?.teamRoom).not.toBe(true);
   });
+
+  test("a room run does not reuse an idle session made without the room limits", async () => {
+    leadTeamRoom("room-1");
+    const first = await start(dom, "one", {
+      session: { externalKey: "room-1", origin: "inbox" },
+    });
+    await drive(first.runId);
+    // Make the session look like one created before the limits: it carries the plain agent fingerprint.
+    const registered = db.select().from(managedAgents).get();
+    db.update(managedSessions)
+      .set({ agentFingerprint: registered?.fingerprint ?? "" })
+      .run();
+    const second = await start(dom, "two", {
+      session: { externalKey: "room-1", origin: "inbox" },
+    });
+
+    await drive(second.runId);
+
+    expect(gateway.sessions.size).toBe(2);
+    expect(sessionOf(second.runId, "two")?.overrides?.teamRoom).toBe(true);
+  });
 });
 
 describe("session tokens", () => {

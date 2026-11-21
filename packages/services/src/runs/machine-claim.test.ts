@@ -112,6 +112,7 @@ const installSlackApp = (agent: string) => {
 const claim = (machineId: string, runId: string) =>
   runs.claimRunForMachine(machine(machineId), runId, {
     platformUrl: PLATFORM,
+    teamRoomForDaemon: true,
   });
 
 const rejection = async (promise: Promise<unknown>) => {
@@ -269,6 +270,45 @@ test("a lead's team-room run claim is marked teamRoom, and the same agent's ui r
   const ui = await start(agentId);
   const uiClaim = await claim("m1", ui.runId);
   expect("teamRoom" in uiClaim).toBe(false);
+});
+
+test("a lead's team-room run is not claimed by a daemon without the team-room feature, and stays offered", async () => {
+  db.insert(teamRows)
+    .values({
+      createdAt: START,
+      id: "ops",
+      leadAgentId: agentId,
+      name: "ops",
+      slug: "ops",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(threadRows)
+    .values({
+      createdAt: START,
+      createdBy: "u1",
+      id: "t1",
+      lastPostAt: START,
+      teamId: "ops",
+      title: "t1",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const room = await start(agentId, "t1");
+  db.update(sessions)
+    .set({ origin: "inbox" })
+    .where(eq(sessions.id, room.sessionId))
+    .run();
+
+  const error = await rejection(
+    runs.claimRunForMachine(machine("m1"), room.runId, {
+      platformUrl: PLATFORM,
+    })
+  );
+
+  expect(error).toBeInstanceOf(ForbiddenError);
+  expect(error.message).toContain("teamRoomRequired");
+  expect(status(room.runId)?.status).not.toBe("running");
 });
 
 test("a claim adds a proxy entry for each connector the agent has", async () => {

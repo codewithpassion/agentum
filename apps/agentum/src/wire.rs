@@ -403,6 +403,7 @@ pub fn daemon_hello(version: &str, claude_version: &str) -> DaemonHello {
                 "current-approvals",
                 "parallel-subagents",
                 "parked-questions",
+                "team-room",
             ]
             .map(String::from)
             .to_vec(),
