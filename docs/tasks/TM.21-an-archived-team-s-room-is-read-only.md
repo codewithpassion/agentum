@@ -28,3 +28,4 @@ From the TM gate review, round 1 (`docs/reviews/TM-1.md`, must-fix 3).
 - 2026-11-21: added by controller.
 - 2026-11-21: dispatched.
 - 2026-11-21: dispatcher stopped at the account monthly spend limit (HTTP 429). Work is saved in its worktree. Resume the same dispatcher after the limit resets on Nov 25.
+- 2026-11-21: spend limit reset, same dispatcher resumed.
