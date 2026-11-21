@@ -3,7 +3,7 @@ id: TM.21
 title: "An archived team's room is read-only"
 milestone: TM
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/TM.21-an-archived-team-s-room-is-read-only
 lane: services-inbox
@@ -29,3 +29,5 @@ From the TM gate review, round 1 (`docs/reviews/TM-1.md`, must-fix 3).
 - 2026-11-21: dispatched.
 - 2026-11-21: dispatcher stopped at the account monthly spend limit (HTTP 429). Work is saved in its worktree. Resume the same dispatcher after the limit resets on Nov 25.
 - 2026-11-21: spend limit reset, same dispatcher resumed.
+- 2026-11-21: ready at 1c06afd2, review clean after 1 fix round, browser proof passed.
+- 2026-11-21: merged 35e66f6d, merge check passed. Done.
