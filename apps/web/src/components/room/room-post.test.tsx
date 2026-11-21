@@ -173,3 +173,25 @@ test("a Slack guest's post shows the guest's name, a Slack guest tag and the mes
   expect(html).toContain("can we move the call?");
   expect(html).not.toContain("(Slack guest):");
 });
+
+test("a labelled Slack link in a person's post reads as a link with no brackets", () => {
+  const html = renderToStaticMarkup(
+    <RouterContextProvider router={router}>
+      <RoomPost
+        assigned={[]}
+        author={person}
+        authorLabel="Dom Fretz"
+        files={new Map()}
+        post={{
+          ...basePost,
+          authorId: "user_1",
+          authorKind: "user",
+          text: "see [the launch doc](https://example.com/doc) now",
+        }}
+      />
+    </RouterContextProvider>
+  );
+  expect(html).toContain('href="https://example.com/doc"');
+  expect(html).toContain(">the launch doc</a>");
+  expect(html).not.toContain("[the launch doc]");
+});
