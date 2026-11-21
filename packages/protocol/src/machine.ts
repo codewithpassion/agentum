@@ -41,6 +41,9 @@ export const FEATURE_LIBRARY_LIVE = "library-live";
 /** The daemon ends a turn at once on a question the Worker says it will answer later, and reports `awaitingAnswer` when it completes. */
 export const FEATURE_PARKED_QUESTIONS = "parked-questions";
 
+/** The daemon starts Claude Code with only read tools when the claim says `teamRoom`. A room run is never claimed by a daemon without it. */
+export const FEATURE_TEAM_ROOM = "team-room";
+
 /** Whether the value of `DAEMON_FEATURES_HEADER` names `feature`. */
 export const hasDaemonFeature = (
   header: string | null | undefined,
@@ -263,6 +266,8 @@ export const claimResponseSchema = z.strictObject({
     runtimeMachineId: z.string().nullable(),
     runtimeRef: z.string().nullable(),
   }),
+  // A lead's run in its team room. The client starts Claude Code with only read tools and the Agentum MCP server.
+  teamRoom: z.literal(true).optional(),
   toolRules: z.array(z.string()).optional(),
 });
 export type ClaimResponse = z.infer<typeof claimResponseSchema>;

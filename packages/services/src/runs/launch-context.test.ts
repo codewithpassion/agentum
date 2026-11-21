@@ -411,6 +411,16 @@ test("a lead's run in its team room gets no connectors", async () => {
   expect((await build()).connectors).toEqual([]);
 });
 
+test("a lead's run in its team room is marked as a team room run, and its ui run is not", async () => {
+  addTeam("ops", { leadAgentId: agentId });
+  addTopic("t1", "ops");
+  setRunSession({ externalKey: "t1", origin: "inbox" });
+  expect((await build()).teamRoom).toBe(true);
+
+  setRunSession({ externalKey: "t1", origin: "ui" });
+  expect((await build()).teamRoom).toBe(false);
+});
+
 test("a run in a topic whose team has another lead keeps its connectors", async () => {
   addConnector("c1", "2026-10-16T10:00:01.000Z");
   addTeam("ops", { leadAgentId: addOtherAgent() });

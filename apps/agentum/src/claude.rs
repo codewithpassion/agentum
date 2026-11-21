@@ -16,6 +16,12 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
+/// Built-in tools a lead's run keeps in its team room: read-only, so the run
+/// can look at files but not change them. MCP tools arrive separately and stay
+/// available. Passed as `--tools=<list>` (single-arg form, since `--tools` is
+/// variadic).
+const TEAM_ROOM_TOOLS: &str = "Read,Glob,Grep";
+
 pub fn normalize(message: &Value) -> Vec<Value> {
     let mut events = vec![];
     let Some(blocks) = message["message"]["content"].as_array() else {
@@ -314,6 +320,9 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
             "bypassPermissions",
             "--allow-dangerously-skip-permissions",
         ]);
+    if claim["teamRoom"] == true {
+        command.arg(format!("--tools={TEAM_ROOM_TOOLS}"));
+    }
     if gate.is_some() {
         command.args(["--permission-prompt-tool", "stdio"]);
     }

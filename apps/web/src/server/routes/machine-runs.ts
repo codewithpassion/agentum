@@ -15,6 +15,7 @@ import {
   FEATURE_LIBRARY_SYNC,
   FEATURE_PARKED_QUESTIONS,
   FEATURE_REQUESTS,
+  FEATURE_TEAM_ROOM,
   hasDaemonFeature,
   waitRequestResponseSchema,
 } from "@repo/protocol/machine";
@@ -108,6 +109,11 @@ export const machineRunRoutes = () => {
           questionsLaterForDaemon: hasDaemonFeature(
             c.req.header(DAEMON_FEATURES_HEADER),
             FEATURE_PARKED_QUESTIONS
+          ),
+          // A lead's room run goes only to a daemon that limits its tools.
+          teamRoomForDaemon: hasDaemonFeature(
+            c.req.header(DAEMON_FEATURES_HEADER),
+            FEATURE_TEAM_ROOM
           ),
           // The address the daemon reached us at is one it can use for /mcp.
           platformUrl: new URL(c.req.url).origin,
