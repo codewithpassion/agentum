@@ -3,9 +3,9 @@ id: SL.8
 title: "Slack markup both ways"
 milestone: SL
 size: S
-status: in_progress
+status: ready
 depends_on: [SL.7]
-branch: null
+branch: task/SL.8-slack-markup-both-ways
 lane: slack
 executor: claude
 ---
@@ -20,3 +20,4 @@ Check. Unit tests for both converters. Browser with the fake: a message with a m
 ## Log
 - 2026-11-21: added by controller.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 4849ee65, review clean after 1 fix round. Browser step skipped under the new rule.
