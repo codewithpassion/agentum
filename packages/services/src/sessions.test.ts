@@ -1126,7 +1126,7 @@ test("a run cannot list, read or search another run's subagent sessions", async 
   ).resolves.toMatchObject({ id: child.sessionId });
 });
 
-test.each(["ui", "inbox"] as const)(
+test.each(["ui", "slack"] as const)(
   "subagents inherit %s session privacy and keep the delegated reader",
   async (origin) => {
     await db
@@ -1135,7 +1135,7 @@ test.each(["ui", "inbox"] as const)(
       .where(eq(agentRows.id, agentId));
     const parent = await startIn(user("u1"), agentId, "private parent", {
       origin,
-      private: origin === "inbox",
+      private: origin === "slack",
     });
     await db
       .update(runRows)

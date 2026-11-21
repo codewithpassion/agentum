@@ -104,6 +104,7 @@ test("an unlinked editor sees the channel select with each channel, private ones
   expect(html).toContain(
     "Messages in the channel appear in the team room, and room posts go to the channel. A team links one channel, and a channel links one team."
   );
+  expect(html).toContain("Only an admin can link a private channel");
 });
 
 test("the Link channel button is disabled until a channel is picked", () => {
@@ -146,8 +147,9 @@ test("an app in no channels is told to invite it to a channel", () => {
     status: unlinked,
   });
   expect(html).toContain(
-    "The lead's Slack app is in no channels. Invite it to a channel in Slack first."
+    "No channel to link. You can link a channel you are in on Slack when the lead's Slack app is in it too. Join or invite the app in Slack first."
   );
+  expect(html).toContain("Only an admin can link a private channel");
   expect(html).not.toMatch(SELECT_OPENING);
 });
 
