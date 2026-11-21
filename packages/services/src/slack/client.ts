@@ -108,9 +108,12 @@ export interface SlackClient {
     filename: string;
     threadTs?: string;
   }) => Promise<SlackCallResult<{ fileId: string }>>;
+  /** Gives the profile email, and the id of the Slack team the user belongs to (not this one for a Slack Connect user). */
   userEmail: (
     userId: string
-  ) => Promise<SlackCallResult<{ email: string | null }>>;
+  ) => Promise<
+    SlackCallResult<{ email: string | null; teamId: string | null }>
+  >;
   /** Gives the display name of a user, and the other distinct names Slack knows them by. Needs the users:read scope. */
   userName: (
     userId: string
@@ -703,10 +706,12 @@ export const createSlackClient = (deps: {
       return callSlack(
         { method: "GET", url: apiUrl("users.info", { user: userId }) },
         (body) => {
-          const profile = asBody(asBody(body.user).profile);
-          const { email } = profile;
+          const user = asBody(body.user);
+          const { email } = asBody(user.profile);
+          const { team_id: teamId } = user;
           return {
             email: typeof email === "string" && email !== "" ? email : null,
+            teamId: typeof teamId === "string" && teamId !== "" ? teamId : null,
           };
         }
       );

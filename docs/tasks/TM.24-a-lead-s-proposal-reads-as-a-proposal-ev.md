@@ -3,7 +3,7 @@ id: TM.24
 title: "A lead's proposal reads as a proposal everywhere it shows"
 milestone: TM
 size: S
-status: todo
+status: in_progress
 depends_on: [TM.12]
 branch: null
 lane: web-room
@@ -26,3 +26,4 @@ From the TM.12 review (`docs/reviews/tasks/TM.12.md`, items left outside the car
 
 ## Log
 - 2026-11-21: added by controller from the TM.12 review.
+- 2026-11-21: dispatched.

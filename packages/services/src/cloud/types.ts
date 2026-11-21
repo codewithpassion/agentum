@@ -28,6 +28,8 @@ export interface CloudStart {
     workspaceId: string;
   };
   runToken: string;
+  /** A lead's run in its team room: the runner installs no file-writing, shell or `web_fetch` tool. Absent otherwise. */
+  teamRoom?: true;
 }
 
 /**

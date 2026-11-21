@@ -3,7 +3,7 @@ id: SL.6
 title: "A fake runtime that asks for approval in a room"
 milestone: SL
 size: S
-status: todo
+status: in_progress
 depends_on: []
 branch: null
 lane: runtimes
@@ -19,3 +19,4 @@ Scope. A fake mode chosen by a marker in the task text (for example `ask:<tool>`
 Check. A run test for the mode. Browser: post `@ada ask:send_email` in a linked room, see the card in the fake Slack thread, press Allow once there, and see the request close in Agentum and the card settle.
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.

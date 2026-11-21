@@ -47,12 +47,14 @@ const taskFolderLine = async (
  * A read changes nothing, so it may run again after a restart. A write and an edit may not.
  * `slugOf`, `taskFolderOf` and `computerOf` are read when the prompt renders.
  * `computerOf` answers the agent's attached computer, and the section then adds
- * how to use it.
+ * how to use it. `readOnly` gives only the read tool and leaves `run_script` out
+ * of the prompt, for a run that must not change the library.
  */
 export const libraryToolsExtension = (
   slugOf: () => Promise<string | undefined>,
   taskFolderOf?: () => Promise<string | undefined>,
-  computerOf?: () => Promise<{ desktop: boolean } | undefined>
+  computerOf?: () => Promise<{ desktop: boolean } | undefined>,
+  readOnly = false
 ): Extension => ({
   name: LIBRARY_TOOLS_EXTENSION,
   sections: [
@@ -64,7 +66,7 @@ export const libraryToolsExtension = (
           home: await homeFor(slugOf),
           homeIsLocal: true,
           library: LIBRARY_MOUNT,
-          runScript: true,
+          runScript: !readOnly,
           scratch: { lasts: "call", path: null },
           taskFolder: await taskFolderLine(taskFolderOf),
         });
@@ -73,9 +75,11 @@ export const libraryToolsExtension = (
       },
     },
   ],
-  tools: [
-    { ...createReadTool(), replay: "safe" },
-    createWriteTool(),
-    createEditTool(),
-  ],
+  tools: readOnly
+    ? [{ ...createReadTool(), replay: "safe" }]
+    : [
+        { ...createReadTool(), replay: "safe" },
+        createWriteTool(),
+        createEditTool(),
+      ],
 });

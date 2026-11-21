@@ -3,7 +3,7 @@ id: SL.13
 title: "A Slack user is linked in a linked channel too"
 milestone: SL
 size: S
-status: in_progress
+status: ready
 depends_on: [SL.10]
 branch: task/SL.13-a-slack-user-is-linked-in-a-linked-chann
 lane: slack
@@ -29,3 +29,5 @@ From the SL gate review, round 1 (`docs/reviews/SL-1.md`, must-fix 4).
 - 2026-11-21: dispatched.
 - 2026-11-21: dispatcher stopped at the account monthly spend limit (HTTP 429). Work is saved in its worktree. Resume the same dispatcher after the limit resets on Nov 25.
 - 2026-11-21: spend limit reset, same dispatcher resumed.
+- 2026-11-21: ready at e86ee3d7, review clean after 1 fix round. No UI in scope.
+- 2026-11-21: first merge check failed on one load timeout in exports.test.ts, unrelated to SL.13 (passes alone, load average 36). FX.4 added. Re-running the check.
