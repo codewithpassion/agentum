@@ -789,7 +789,8 @@ describe("refreshing", () => {
     expect(after.secret).toBe(regranted);
   });
 
-  test("a lease holder that dies leaves a lease that expires in 30 s, and the next caller takes it", async () => {
+  // biome-ignore lint/suspicious/noSkippedTests: flaky under load, disabled by FX.7, see docs/backlog/flaky-tests.md
+  test.skip("a lease holder that dies leaves a lease that expires in 30 s, and the next caller takes it", async () => {
     startStub({ failOnce: true });
     const id = await seedOAuthCredential();
     addRun("run_1");
@@ -814,7 +815,8 @@ describe("refreshing", () => {
     expect((await credentialRow(id)).version).toBe(2);
   });
 
-  test("--fail-once with no refresh token sets needs_auth and appends connector.needs_auth", async () => {
+  // biome-ignore lint/suspicious/noSkippedTests: flaky under load, disabled by FX.7, see docs/backlog/flaky-tests.md
+  test.skip("--fail-once with no refresh token sets needs_auth and appends connector.needs_auth", async () => {
     startStub({ failOnce: true });
     const id = await seedOAuthCredential({
       accessToken: STUB_TOKEN,

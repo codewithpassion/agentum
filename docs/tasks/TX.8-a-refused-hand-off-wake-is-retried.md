@@ -3,7 +3,7 @@ id: TX.8
 title: "A refused hand-off wake is retried"
 milestone: TX
 size: S
-status: todo
+status: in_progress
 depends_on: []
 branch: null
 lane: services-inbox
@@ -21,3 +21,4 @@ Check. A service test with a lead at its wake limit: the post exists, no run sta
 
 ## Log
 - 2026-11-21: added by controller from the TX walkthrough.
+- 2026-11-21: dispatched.
