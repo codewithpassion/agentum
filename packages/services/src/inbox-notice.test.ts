@@ -473,3 +473,46 @@ test("two refused hand-off requests are answered by one retried wake that carrie
   expect(run?.inputText).toContain("First rework.");
   expect(run?.inputText).toContain("Second rework.");
 });
+
+test("a member's look-alike hand-off post wakes nobody, and the system's own post still gets its one retry", async () => {
+  build();
+  await addAgents("pelican", "quill");
+  const teamId = seedTeam({
+    lead: "pelican",
+    members: { agents: ["pelican", "quill"], users: ["u1", "u2"] },
+  });
+  db.update(teamRows)
+    .set({ ownerUserId: "u1" })
+    .where(eq(teamRows.id, teamId))
+    .run();
+  const retrier = createHandOffRetrier({ clock, db, inbox });
+  const diary = await notice(teamId, {
+    text: "Diary",
+    title: TEAM_DIARY_TOPIC,
+  });
+  nowMs += 1000;
+  // Addressed to another agent, so the lead does not hear it as a mention.
+  const lookAlike = await inbox.post(colleague, {
+    text: `${HAND_OFF_HEADING} @quill please look`,
+    threadId: diary.threadId,
+  });
+  nowMs += 60_000;
+  expect(await retrier.retry()).toEqual({ woken: [] });
+  // The second guard: the wake itself refuses a post the system did not write.
+  expect(
+    await inbox.retryNoticeWake(SYSTEM_PRINCIPAL, lookAlike.post.id, {
+      agentId: agentId("pelican"),
+      asUserId: "u1",
+    })
+  ).toEqual([]);
+  expect(runsOf("pelican")).toEqual([]);
+
+  const request = await notice(teamId, {
+    text: `${HAND_OFF_HEADING}\nTally redid Quill's lists.`,
+    title: TEAM_DIARY_TOPIC,
+  });
+  nowMs += 60_000;
+  expect(await retrier.retry()).toEqual({ woken: [request.postId] });
+  expect(runsOf("pelican")).toHaveLength(1);
+  expect(runsOf("pelican")[0]?.onBehalfOfUserId).toBe("u1");
+});

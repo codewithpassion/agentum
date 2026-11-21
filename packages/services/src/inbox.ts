@@ -84,7 +84,7 @@ const READ_ACTION = "inbox.read";
 const POST_ACTION = "inbox.post";
 const NOTICE_ACTION = "inbox.notice";
 /** The author id of a notice no agent wrote. */
-const SYSTEM_AUTHOR_ID = "system";
+export const SYSTEM_AUTHOR_ID = "system";
 const NOTICE_TEXT_MAX = 20_000;
 const INBOX_KIND = "inbox";
 const TITLE_MAX = 120;
@@ -1324,7 +1324,12 @@ export const createInboxService = ({
       .from(inboxPosts)
       .where(eq(inboxPosts.id, postId))
       .limit(1);
-    if (!entry) {
+    // Only a post the system wrote may wake the lead as the team owner.
+    if (
+      !entry ||
+      entry.authorId !== SYSTEM_AUTHOR_ID ||
+      entry.authorKind !== "user"
+    ) {
       return [];
     }
     const thread = await findThread(entry.threadId, entry.workspaceId);
