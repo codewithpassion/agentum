@@ -23,6 +23,7 @@ import {
   type TeamPerson,
   teamJobs,
 } from "./team-logic.ts";
+import { TeamMemoryPanel } from "./team-memory.tsx";
 import { TeamSection } from "./team-section.tsx";
 
 export interface TeamPageProps {
@@ -132,7 +133,7 @@ function Aside({ children }: { children: ReactNode }) {
 }
 
 /**
- * One team: its members, lead, rules, shared folder, the standing jobs of its
+ * One team: its members, lead, rules, team memory, shared folder, the standing jobs of its
  * agents, and how the team knows the caller. Only an admin or the team's owner
  * can change the team. Anyone can set their own name and handle.
  */
@@ -200,6 +201,14 @@ export function TeamPage({
               rules={team.rules}
             />
           </TeamSection>
+          {canEdit && team.folderPath !== null ? (
+            <TeamSection
+              description="What the team's agents share, tidied by a team dream. Only the team's owner or an admin sees this."
+              title="Team memory"
+            >
+              <TeamMemoryPanel teamId={team.id} teamName={team.name} />
+            </TeamSection>
+          ) : null}
         </div>
         <Aside>
           <TeamSection title="Lead">

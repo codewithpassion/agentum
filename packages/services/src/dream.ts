@@ -277,6 +277,27 @@ export const createDreamService = (deps: DreamDeps) => {
     return await withHeld(rows);
   };
 
+  /** The team's dreams, newest first. A team dream belongs to no agent, so `list` never returns it. */
+  const listTeam = async (
+    principal: Principal,
+    teamId: string
+  ): Promise<DreamRun[]> => {
+    const workspaceId = readableWorkspace(principal, DREAM_READ);
+    authorize(principal, DREAM_READ, dreamResource(workspaceId, teamId));
+    const rows = await db
+      .select()
+      .from(dreamRuns)
+      .where(
+        and(
+          eq(dreamRuns.workspaceId, workspaceId),
+          eq(dreamRuns.teamId, teamId)
+        )
+      )
+      .orderBy(desc(dreamRuns.startedAt), desc(dreamRuns.id))
+      .limit(RUNS_LIMIT);
+    return await withHeld(rows);
+  };
+
   const get = async (
     principal: Principal,
     dreamRunId: string
@@ -736,6 +757,7 @@ export const createDreamService = (deps: DreamDeps) => {
     fireDueTeams,
     get,
     list,
+    listTeam,
     postTeamDiaries,
     retryHandOffWakes,
     runNow,

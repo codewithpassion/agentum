@@ -610,6 +610,7 @@ test("teams procedures are 401 without a workspace", async () => {
 test("dream.list is empty while the stub lists no runs", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
   expect(await caller.dream.list({ agentId: "a1" })).toEqual([]);
+  expect(await caller.dream.listTeam({ teamId: "t1" })).toEqual([]);
 });
 
 test("dream changes are NOT_FOUND while the stub changes nothing", async () => {
