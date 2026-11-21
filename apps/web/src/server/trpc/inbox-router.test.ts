@@ -68,6 +68,33 @@ test("a post that mentions the fake agent gets its reply in the thread", async (
   expect(listed.map((item) => item.id)).toEqual([thread.id]);
 });
 
+test("listThreads takes an optional teamId and lists only that room's topics", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const ops = await caller.teams.create({ name: "Ops" });
+  await caller.teams.addMember({
+    memberId: "user_1",
+    memberKind: "user",
+    teamId: ops.id,
+  });
+  const inOps = await caller.inbox.createThread({
+    teamId: ops.id,
+    title: "In Ops",
+  });
+  const inEveryone = await caller.inbox.createThread({ title: "In Everyone" });
+
+  const room = await caller.inbox.listThreads({ teamId: ops.id });
+  expect(room.map((item) => item.id)).toEqual([inOps.id]);
+  const all = await caller.inbox.listThreads();
+  expect(new Set(all.map((item) => item.id))).toEqual(
+    new Set([inOps.id, inEveryone.id])
+  );
+  await expect(caller.inbox.listThreads({ teamId: "" })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+  const other = await callerFor({ orgId: "org_b", userId: "user_2" });
+  expect(await other.inbox.listThreads({ teamId: ops.id })).toEqual([]);
+});
+
 test("another workspace cannot see the thread", async () => {
   const owner = await callerFor({ orgId: "org_a", userId: "user_1" });
   const thread = await owner.inbox.createThread({ title: "Private" });
