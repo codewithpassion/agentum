@@ -7,6 +7,7 @@ import {
   isEveryone,
   isRoomMember,
   memberOfPost,
+  membersInTopic,
   requestsOfTopic,
   roomDirectory,
   roomForInboxLink,
@@ -335,6 +336,37 @@ test("assignedTo leaves out the lead when its own post mentions it", () => {
     text: "@ruby noting this, @amir please act",
   };
   expect(assignedTo(post, "agent_ruby", [ruby, amir])).toEqual([amir]);
+});
+
+test("membersInTopic keeps everyone for an open topic", () => {
+  expect(membersInTopic([ruby, amir, zoe], [])).toEqual([ruby, amir, zoe]);
+});
+
+test("membersInTopic keeps only the members a limited topic names, by id and kind", () => {
+  const agentWithZoesId: RoomMember = { ...ruby, id: "u_zoe" };
+  const limitedTo = [
+    { id: "agent_ruby", kind: "agent" as const },
+    { id: "u_zoe", kind: "user" as const },
+  ];
+  expect(membersInTopic([ruby, amir, zoe, agentWithZoesId], limitedTo)).toEqual(
+    [ruby, zoe]
+  );
+});
+
+test("assignedTo does not list a mentioned member who is not in a limited topic", () => {
+  const post = {
+    authorId: "agent_ruby",
+    authorKind: "agent" as const,
+    text: "@amir please check, @zoe too",
+  };
+  const inTopic = membersInTopic(
+    [ruby, amir, zoe],
+    [
+      { id: "agent_ruby", kind: "agent" },
+      { id: "u_amir", kind: "user" },
+    ]
+  );
+  expect(assignedTo(post, "agent_ruby", inTopic)).toEqual([amir]);
 });
 
 test("topicSessionIds collects the sessions linked to a thread", () => {
