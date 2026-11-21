@@ -20,9 +20,11 @@ import type { RoomDirectory, RoomMember } from "./room-types.ts";
 interface RoomThreadProps {
   canPost: boolean;
   directory: RoomDirectory;
+  /** True for a person in the team: they may dismiss and stop, even in an archived team. */
+  isMember: boolean;
   members: readonly RoomMember[];
   onPosted: () => void;
-  team: Pick<Team, "leadAgentId" | "name">;
+  team: Pick<Team, "archivedAt" | "leadAgentId" | "name">;
   threadId: string;
   userId: string;
 }
@@ -31,6 +33,7 @@ interface RoomThreadProps {
 export function RoomThread({
   canPost,
   directory,
+  isMember,
   members,
   onPosted,
   team,
@@ -113,7 +116,7 @@ export function RoomThread({
       <h2 className="font-heading text-2xl text-foreground">
         {view.data.thread.title}
       </h2>
-      {canPost && view.data.discussion ? (
+      {isMember && view.data.discussion ? (
         <div className="flex items-center gap-3">
           <span>
             Discussion round {view.data.discussion.round} of{" "}
@@ -134,7 +137,7 @@ export function RoomThread({
           {stopError}
         </p>
       ) : null}
-      {canPost && threadWaits(view.data.thread, view.data.posts) ? (
+      {isMember && threadWaits(view.data.thread, view.data.posts) ? (
         <div className="flex flex-col gap-2">
           <div>
             <Button
@@ -187,7 +190,8 @@ export function RoomThread({
           onSent={handleSent}
           threadId={threadId}
         />
-      ) : (
+      ) : null}
+      {canPost || team.archivedAt !== null ? null : (
         <p className="text-muted-foreground text-sm">
           {`You are not in ${team.name}, so you can read this topic but not post.`}
         </p>

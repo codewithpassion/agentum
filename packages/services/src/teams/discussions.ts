@@ -68,7 +68,7 @@ interface DiscussionDeps {
     member: Member,
     id: string,
     action: string,
-    access: "post"
+    access: "post" | "tend"
   ) => Promise<ThreadRow>;
   requireWriter: (principal: Principal) => Member;
   roomOf: (thread: ThreadRow) => Promise<Room>;
@@ -620,7 +620,7 @@ export const createDiscussionRounds = ({
       writer,
       input.threadId,
       POST_ACTION,
-      "post"
+      "tend"
     );
     await db
       .update(discussions)
