@@ -11,9 +11,15 @@ import {
   useRef,
   useState,
 } from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { SendHint } from "#/components/composer/send-hint";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
 import { StickyComposer } from "#/components/composer/sticky-composer";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import { canSend } from "#/components/inbox/inbox-logic";
 import { Button } from "#/components/ui/button";
 import { Label } from "#/components/ui/label";
@@ -94,6 +100,18 @@ export function MentionComposer({
   const [pendingCaret, setPendingCaret] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled: sending,
+    getValue: () => text,
+    inputRef,
+    setValue: (value) => {
+      setText(value);
+      setToken(null);
+    },
+  });
+  const busy = sending || dictation.busy;
 
   const options = useMemo(
     () => (token === null ? [] : mentionOptions(token.query, members)),
@@ -201,7 +219,7 @@ export function MentionComposer({
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!canSend(text, sending)) {
+      if (!canSend(text, busy)) {
         return;
       }
       setSending(true);
@@ -217,7 +235,7 @@ export function MentionComposer({
         setSending(false);
       }
     },
-    [text, sending, threadId, onSent]
+    [text, busy, threadId, onSent]
   );
 
   return (
@@ -261,19 +279,24 @@ export function MentionComposer({
             onKeyDown={handleKeyDown}
             onKeyUp={handleKeyUp}
             onSelect={handleSelect}
+            readOnly={dictation.busy}
             ref={inputRef}
             role="combobox"
             value={text}
           />
+          <DictationPreview dictation={dictation} />
         </div>
         <p className="text-muted-foreground text-xs" id={hintId}>
           Type @ to mention an agent or a teammate. An agent you mention starts
           a task.
         </p>
         <div className="flex items-center gap-2">
-          <Button disabled={!canSend(text, sending)} type="submit">
+          <Button disabled={!canSend(text, busy)} type="submit">
             Send
           </Button>
+          <div className="max-md:[&_button]:size-11">
+            <DictationButton dictation={dictation} />
+          </div>
           <SendHint />
         </div>
         {error === null ? null : (

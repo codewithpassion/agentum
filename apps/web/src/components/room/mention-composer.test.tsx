@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { type HTMLTextAreaElement, Window } from "happy-dom";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { TooltipProvider } from "#/components/ui/tooltip.tsx";
 import { MentionComposer } from "./mention-composer.tsx";
 import type { RoomMember } from "./room-types.ts";
 
@@ -103,7 +104,9 @@ test("typing @ lists the mentionable members, agents first", async () => {
   try {
     await act(async () =>
       root.render(
-        <MentionComposer members={members} onSent={noop} threadId="t" />
+        <TooltipProvider>
+          <MentionComposer members={members} onSent={noop} threadId="t" />
+        </TooltipProvider>
       )
     );
     const textarea = container.querySelector("textarea");
@@ -135,7 +138,9 @@ test("ArrowDown and Enter pick a mention and leave a trailing space", async () =
   try {
     await act(async () =>
       root.render(
-        <MentionComposer members={members} onSent={noop} threadId="t" />
+        <TooltipProvider>
+          <MentionComposer members={members} onSent={noop} threadId="t" />
+        </TooltipProvider>
       )
     );
     const textarea = container.querySelector("textarea");
@@ -162,7 +167,9 @@ test("Escape closes the list and keeps the text", async () => {
   try {
     await act(async () =>
       root.render(
-        <MentionComposer members={members} onSent={noop} threadId="t" />
+        <TooltipProvider>
+          <MentionComposer members={members} onSent={noop} threadId="t" />
+        </TooltipProvider>
       )
     );
     const textarea = container.querySelector("textarea");
@@ -188,7 +195,9 @@ test("text with no @ shows no list", async () => {
   try {
     await act(async () =>
       root.render(
-        <MentionComposer members={members} onSent={noop} threadId="t" />
+        <TooltipProvider>
+          <MentionComposer members={members} onSent={noop} threadId="t" />
+        </TooltipProvider>
       )
     );
     const textarea = container.querySelector("textarea");
@@ -197,6 +206,32 @@ test("text with no @ shows no list", async () => {
     }
     await typeText(dom, textarea, "hello there");
     expect(container.querySelector('[role="listbox"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+    await dom.happyDOM.close();
+  }
+});
+
+test("the composer shows the dictation button and a microphone choice", async () => {
+  const dom = new Window();
+  const container = dom.document.createElement("div");
+  dom.document.body.append(container);
+  const { restore, root } = mount(dom, container as unknown as Element);
+  try {
+    await act(async () =>
+      root.render(
+        <TooltipProvider>
+          <MentionComposer members={members} onSent={noop} threadId="t" />
+        </TooltipProvider>
+      )
+    );
+    expect(
+      container.querySelector('button[aria-label="Start dictation"]')
+    ).not.toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Choose microphone"]')
+    ).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
     restore();
