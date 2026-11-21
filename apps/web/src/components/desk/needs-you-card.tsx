@@ -32,8 +32,14 @@ import { ProposalActions } from "./proposal-actions.tsx";
 const BOX_CLASS =
   "flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm";
 
-const headingFor = (agentName: string, kind: NeedsYouKind | undefined) =>
-  kind === undefined ? agentName : NEEDS_YOU_HEADINGS[kind](agentName);
+const headingFor = (
+  agentName: string,
+  kind: NeedsYouKind | undefined,
+  teamName: string | undefined
+) =>
+  kind === undefined
+    ? agentName
+    : NEEDS_YOU_HEADINGS[kind](agentName, teamName);
 
 function OpenTaskLink({ runId }: { runId: string }) {
   return (
@@ -329,7 +335,7 @@ export function NeedsYouCard({
       <header className="flex items-center gap-2.5">
         <AgentTile avatar={avatar} />
         <h3 className="font-semibold">
-          {headingFor(agentName, card.needsYouKind)}
+          {headingFor(agentName, card.needsYouKind, card.dream?.teamName)}
         </h3>
       </header>
       <NeedsYouBody
