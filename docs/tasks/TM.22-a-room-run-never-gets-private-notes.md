@@ -3,7 +3,7 @@ id: TM.22
 title: "A room run never gets private notes"
 milestone: TM
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/TM.22-a-room-run-never-gets-private-notes
 lane: services-runs
@@ -33,3 +33,4 @@ From the TM gate review, round 1 (`docs/reviews/TM-1.md`, must-fix 4).
 - 2026-11-21: dispatched.
 - 2026-11-21: controller ran the read-only count on remote D1. Production and staging hold 0 inbox sessions with private = 1. Nothing to clean up.
 - 2026-11-21: ready at b6e7920f, review clean with no fix rounds. Controller re-ran the count by origin on remote D1. Production has private sessions only of origin mcp (17). Staging has dry_run (7), mcp (1) and slack (1). There are no inbox or qa private sessions, so nothing to clean up.
+- 2026-11-21: merged 88613f47, merge check passed. Done.

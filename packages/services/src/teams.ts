@@ -4,12 +4,14 @@ import { agents } from "@repo/db/schema/agents";
 import { agentLibraryAccess, libraryEntries } from "@repo/db/schema/library";
 import { teamSlackLinks } from "@repo/db/schema/slack";
 import { memberProfiles, teamMembers, teams } from "@repo/db/schema/teams";
+import { identityLinks } from "@repo/db/schema/workspaces";
 import {
   EVERYONE_TEAM_SLUG,
   type MemberProfile,
   TEAM_MEMBER_KINDS,
   type Team,
   type TeamMember,
+  type TeamSlackChannel,
   type TeamSlackChannels,
   type TeamSlackLink,
   type TeamSlackStatus,
@@ -102,6 +104,13 @@ export const profileSetInputSchema = z.strictObject({
   name: nameSchema,
 });
 
+const SLACK_NOT_LINKED =
+  "Your Slack account is not linked to Agentum. Mention one of this team's agents in Slack so it can link you, then try again. An admin can link the channel without this.";
+const SLACK_NOT_IN_CHANNEL =
+  "Slack does not show you in that channel. Join it in Slack and try again, or ask an admin to link it.";
+const SLACK_PRIVATE_ADMIN_ONLY =
+  "Only an admin can link a private channel, because a private channel's messages would land in a room every workspace member can read.";
+
 /** Links the team's room to one Slack channel. Fails when the team or the channel is already linked. */
 export const slackLinkInputSchema = z.strictObject({
   channelId: idString,
@@ -132,6 +141,13 @@ export interface TeamsDeps {
       channelId: string
     ) => Promise<boolean>;
     list: (workspaceId: string, teamId: string) => Promise<TeamSlackChannels>;
+    /** The channels a Slack user is in that the team's apps can see, private ones included. */
+    personChannels: (
+      workspaceId: string,
+      teamId: string,
+      slackTeamId: string,
+      slackUserId: string
+    ) => Promise<TeamSlackChannel[]>;
   };
   /** Which member agents have their Slack app in the team's linked channel (`slack/room-status.ts`). */
   slackStatus: (
@@ -617,12 +633,94 @@ export const createTeamsService = ({
     return get(principal, input.teamId);
   };
 
+  /** The Slack user id the person is linked to in one Slack workspace, or null. */
+  const slackUserOf = async (
+    workspaceId: string,
+    clerkUserId: string,
+    slackTeamId: string
+  ): Promise<string | null> => {
+    const [link] = await db
+      .select({ externalUserId: identityLinks.externalUserId })
+      .from(identityLinks)
+      .where(
+        and(
+          eq(identityLinks.workspaceId, workspaceId),
+          eq(identityLinks.provider, "slack"),
+          eq(identityLinks.teamId, slackTeamId),
+          eq(identityLinks.clerkUserId, clerkUserId)
+        )
+      )
+      .limit(1);
+    return link?.externalUserId ?? null;
+  };
+
+  /** The channels in Slack that the person is in. Throws `invalid` with what to do when they are not linked to Slack. */
+  const channelsOfPerson = async (
+    workspaceId: string,
+    teamId: string,
+    clerkUserId: string,
+    slackTeamId: string
+  ): Promise<TeamSlackChannel[]> => {
+    const slackUserId = await slackUserOf(
+      workspaceId,
+      clerkUserId,
+      slackTeamId
+    );
+    if (slackUserId === null) {
+      throw new ServiceError("invalid", SLACK_NOT_LINKED);
+    }
+    return slackChannels.personChannels(
+      workspaceId,
+      teamId,
+      slackTeamId,
+      slackUserId
+    );
+  };
+
   const slackChannelList = async (
     principal: Principal,
     teamId: string
   ): Promise<TeamSlackChannels> => {
     const row = await writableTeam(principal, teamId);
-    return slackChannels.list(row.workspaceId, teamId);
+    const user = person(principal, true);
+    const all = await slackChannels.list(row.workspaceId, teamId);
+    if (user.isAdmin === true || all.slackTeamId === null) {
+      return all;
+    }
+    const mine = await channelsOfPerson(
+      row.workspaceId,
+      teamId,
+      user.userId,
+      all.slackTeamId
+    );
+    const mineIds = new Set(mine.map((channel) => channel.id));
+    return {
+      ...all,
+      channels: all.channels.filter(
+        (channel) => mineIds.has(channel.id) && !channel.isPrivate
+      ),
+    };
+  };
+
+  /** A person who is not an admin links only a public channel they are in on Slack. */
+  const requireChannelMember = async (
+    workspaceId: string,
+    clerkUserId: string,
+    input: SlackLinkInput
+  ): Promise<void> => {
+    const mine = await channelsOfPerson(
+      workspaceId,
+      input.teamId,
+      clerkUserId,
+      input.slackTeamId
+    );
+    const channel = mine.find(({ id }) => id === input.channelId);
+    if (!channel) {
+      throw new ServiceError("invalid", SLACK_NOT_IN_CHANNEL);
+    }
+    if (channel.isPrivate) {
+      throw new ServiceError("invalid", SLACK_PRIVATE_ADMIN_ONLY);
+    }
   };
 
   const linkSlack = async (
@@ -632,6 +730,9 @@ export const createTeamsService = ({
     const input = slackLinkInputSchema.parse(raw);
     const row = await writableTeam(principal, input.teamId);
     const user = person(principal, true);
+    if (user.isAdmin !== true) {
+      await requireChannelMember(row.workspaceId, user.userId, input);
+    }
     const [taken] = await db
       .select({ teamId: teamSlackLinks.teamId })
       .from(teamSlackLinks)

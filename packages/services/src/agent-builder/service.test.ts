@@ -216,6 +216,7 @@ const buildDeps = (
       slackChannels: {
         canPost: async () => false,
         list: async () => ({ channels: [], slackTeamId: null }),
+        personChannels: async () => [],
       },
       slackStatus: async () => ({ apps: [], channelName: null, link: null }),
     }),

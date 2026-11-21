@@ -4,9 +4,14 @@ import { agents } from "@repo/db/schema/agents";
 import { agentLibraryAccess, libraryEntries } from "@repo/db/schema/library";
 import { teamSlackLinks } from "@repo/db/schema/slack";
 import { teams } from "@repo/db/schema/teams";
-import { workspaces } from "@repo/db/schema/workspaces";
-import type { TeamSlackChannels, TeamSlackStatus } from "@repo/db/shared";
+import { identityLinks, workspaces } from "@repo/db/schema/workspaces";
+import type {
+  TeamSlackChannel,
+  TeamSlackChannels,
+  TeamSlackStatus,
+} from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
+import { eq } from "drizzle-orm";
 import { ForbiddenError } from "./authz.ts";
 
 import {
@@ -37,6 +42,8 @@ let statusCalls: { teamId: string; workspaceId: string }[];
 let statusAnswer: TeamSlackStatus;
 let channelAnswer: TeamSlackChannels;
 let postableChannels: string[];
+let personAnswer: TeamSlackChannel[];
+let personCalls: string[];
 const admin: Principal = { ...user, isAdmin: true };
 const other: Principal = { ...user, userId: "u2" };
 
@@ -46,6 +53,11 @@ beforeEach(() => {
   statusAnswer = { apps: [], channelName: null, link: null };
   channelAnswer = { channels: [], slackTeamId: null };
   postableChannels = ["C1", "C2"];
+  personAnswer = [
+    { id: "C1", isPrivate: false, name: "ops" },
+    { id: "C2", isPrivate: false, name: "dev" },
+  ];
+  personCalls = [];
   for (const id of [WORKSPACE, "w2"]) {
     db.insert(workspaces)
       .values({
@@ -57,6 +69,18 @@ beforeEach(() => {
       })
       .run();
   }
+  db.insert(identityLinks)
+    .values({
+      clerkUserId: "u1",
+      createdAt: NOW,
+      email: "u1@example.com",
+      externalUserId: "U-ME",
+      id: "il1",
+      provider: "slack",
+      teamId: "T1",
+      workspaceId: WORKSPACE,
+    })
+    .run();
   for (const [id, workspaceId, status] of [
     ["a1", WORKSPACE, "active"],
     ["a2", WORKSPACE, "active"],
@@ -87,6 +111,10 @@ beforeEach(() => {
       canPost: (_workspaceId, _teamId, _slackTeamId, channelId) =>
         Promise.resolve(postableChannels.includes(channelId)),
       list: () => Promise.resolve(channelAnswer),
+      personChannels: (_workspaceId, _teamId, _slackTeamId, slackUserId) => {
+        personCalls.push(slackUserId);
+        return Promise.resolve(personAnswer);
+      },
     },
     slackStatus: (workspaceId, teamId) => {
       statusCalls.push({ teamId, workspaceId });
@@ -644,6 +672,7 @@ test("slack.link refuses a team in another workspace, an archived team and a mis
 
 test("slack.link refuses a channel no member agent's app is in", async () => {
   seedTeam("t1");
+  personAnswer = [{ id: "C-OTHER", isPrivate: false, name: "other" }];
 
   await expect(
     service.slack.link(user, linkInput("t1", "C-OTHER"))
@@ -676,6 +705,18 @@ test("a team cannot link two channels and a channel cannot link two teams", asyn
 
 test("the same channel id in another Slack workspace is a different channel", async () => {
   seedTeam("t1");
+  db.insert(identityLinks)
+    .values({
+      clerkUserId: "u1",
+      createdAt: NOW,
+      email: "u1@example.com",
+      externalUserId: "U-ME-2",
+      id: "il2",
+      provider: "slack",
+      teamId: "T2",
+      workspaceId: WORKSPACE,
+    })
+    .run();
   seedTeam("t2");
   await service.slack.link(user, linkInput("t1"));
 
@@ -743,6 +784,109 @@ test("slack.channels gives the channels the lead's app sees, to the owner only",
   );
   await expect(service.slack.channels(user, "nope")).rejects.toMatchObject({
     code: "not_found",
+  });
+});
+
+const OPS = { id: "C1", isPrivate: false, name: "ops" };
+const SECRET = { id: "G1", isPrivate: true, name: "secret" };
+const unlinkSlackUser = () =>
+  db.delete(identityLinks).where(eq(identityLinks.id, "il1")).run();
+
+test("a team owner who is not in the channel on Slack cannot list or link it", async () => {
+  seedTeam("t1");
+  channelAnswer = {
+    channels: [OPS, { id: "C2", isPrivate: false, name: "dev" }],
+    slackTeamId: "T1",
+  };
+  personAnswer = [{ id: "C2", isPrivate: false, name: "dev" }];
+
+  expect(await service.slack.channels(user, "t1")).toEqual({
+    channels: [{ id: "C2", isPrivate: false, name: "dev" }],
+    slackTeamId: "T1",
+  });
+  await expect(
+    service.slack.link(user, linkInput("t1", "C1"))
+  ).rejects.toMatchObject({
+    code: "invalid",
+    message: expect.stringContaining("Join it in Slack"),
+  });
+  expect(linkRows()).toEqual([]);
+  expect(personCalls).toEqual(["U-ME", "U-ME"]);
+});
+
+test("a person who is in the channel on Slack can list and link it", async () => {
+  seedTeam("t1");
+  channelAnswer = { channels: [OPS], slackTeamId: "T1" };
+
+  expect((await service.slack.channels(user, "t1")).channels).toEqual([OPS]);
+  expect(await service.slack.link(user, linkInput("t1", "C1"))).toMatchObject({
+    channelId: "C1",
+  });
+});
+
+test("a person not linked to Slack cannot list or link, and the error says what to do", async () => {
+  seedTeam("t1");
+  channelAnswer = { channels: [OPS], slackTeamId: "T1" };
+  unlinkSlackUser();
+
+  await expect(service.slack.channels(user, "t1")).rejects.toMatchObject({
+    code: "invalid",
+    message: expect.stringContaining("Mention one of this team's agents"),
+  });
+  await expect(
+    service.slack.link(user, linkInput("t1", "C1"))
+  ).rejects.toMatchObject({
+    code: "invalid",
+    message: expect.stringContaining("not linked to Agentum"),
+  });
+  expect(linkRows()).toEqual([]);
+});
+
+test("a link in another Slack workspace does not count", async () => {
+  seedTeam("t1");
+  channelAnswer = { channels: [OPS], slackTeamId: "T1" };
+  db.update(identityLinks).set({ teamId: "T-OTHER" }).run();
+
+  await expect(
+    service.slack.link(user, linkInput("t1", "C1"))
+  ).rejects.toMatchObject({
+    code: "invalid",
+    message: expect.stringContaining("not linked to Agentum"),
+  });
+});
+
+test("an admin lists and links any channel without a Slack link", async () => {
+  seedTeam("t1");
+  channelAnswer = { channels: [OPS, SECRET], slackTeamId: "T1" };
+  personAnswer = [];
+  unlinkSlackUser();
+
+  expect(await service.slack.channels(admin, "t1")).toEqual(channelAnswer);
+  expect(await service.slack.link(admin, linkInput("t1", "C1"))).toMatchObject({
+    channelId: "C1",
+  });
+  expect(personCalls).toEqual([]);
+});
+
+test("only an admin may link a private channel, and a person does not see it listed", async () => {
+  seedTeam("t1");
+  seedTeam("t2");
+  postableChannels = ["G1"];
+  channelAnswer = { channels: [OPS, SECRET], slackTeamId: "T1" };
+  personAnswer = [OPS, SECRET];
+
+  expect((await service.slack.channels(user, "t1")).channels).toEqual([OPS]);
+  await expect(
+    service.slack.link(user, linkInput("t1", "G1"))
+  ).rejects.toMatchObject({
+    code: "invalid",
+    message: expect.stringContaining(
+      "Only an admin can link a private channel"
+    ),
+  });
+  expect(linkRows()).toEqual([]);
+  expect(await service.slack.link(admin, linkInput("t2", "G1"))).toMatchObject({
+    channelId: "G1",
   });
 });
 
