@@ -179,6 +179,7 @@ export const createCloudRuntime = ({
         workspaceId: run.workspaceId,
       },
       runToken,
+      ...(context.teamRoom ? { teamRoom: true as const } : {}),
     });
   };
 

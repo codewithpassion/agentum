@@ -1532,6 +1532,7 @@ export const createRunsService = ({
       currentApprovalsForDaemon?: boolean;
       requestsForDaemon?: boolean;
       questionsLaterForDaemon?: boolean;
+      teamRoomForDaemon?: boolean;
       platformUrl: string;
     }
   ): Promise<MachineClaim> => {

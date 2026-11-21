@@ -43,6 +43,7 @@ const SECOND_CHANNEL = "C0ROOMSL6";
 const OK = 200;
 const DOM = "user_dom";
 const DOM_SLACK = "U0DOM00001";
+const DOM_EMAIL = "dom@example.test";
 const OWNER_SLACK = "U0OWN00001";
 const GUEST_SLACK = "U0GUS00001";
 const GUEST_NAME = "Gus Guest";
@@ -72,6 +73,8 @@ let route: Hono<AppEnv>;
 let deferred: (() => Promise<void>)[];
 let workspaceId: string;
 let owner: Principal;
+/** When true, the directory knows Dom by his Slack email, as Clerk would. */
+let directoryKnowsDom: boolean;
 let dom: Principal;
 let teamId: string;
 const agentIds = new Map<string, string>();
@@ -155,6 +158,7 @@ const slackPostsBy = (app: FakeSlackApp) =>
 beforeEach(async () => {
   db = migrated([ORG]);
   deferred = [];
+  directoryKnowsDom = false;
   agentIds.clear();
   fake = createFakeSlack({
     config: {
@@ -183,7 +187,7 @@ beforeEach(async () => {
       slackTeamId: SLACK_TEAM,
       users: [
         { email: "owner@example.test", id: OWNER_SLACK, name: "Olive Owner" },
-        { email: "dom@example.test", id: DOM_SLACK, name: "Dom Fretz" },
+        { email: DOM_EMAIL, id: DOM_SLACK, name: "Dom Fretz" },
         { email: "gus@example.test", id: GUEST_SLACK, name: GUEST_NAME },
       ],
     },
@@ -214,8 +218,11 @@ beforeEach(async () => {
       relay: noopRelay,
       secretsKey: SECRETS_KEY,
       slackDirectory: {
-        findUserIdByEmail: () => Promise.resolve(null),
-        isOrgMember: () => Promise.resolve(false),
+        findUserIdByEmail: (email) =>
+          Promise.resolve(
+            directoryKnowsDom && email === DOM_EMAIL ? DOM : null
+          ),
+        isOrgMember: (userId) => Promise.resolve(userId === DOM),
       },
     },
   });
@@ -278,7 +285,7 @@ beforeEach(async () => {
   await db.insert(identityLinks).values({
     clerkUserId: DOM,
     createdAt: new Date().toISOString(),
-    email: "dom@example.test",
+    email: DOM_EMAIL,
     externalUserId: DOM_SLACK,
     id: "link_dom",
     provider: "slack",
@@ -338,6 +345,9 @@ test("linking: the lead's app must be in the channel, and status names the app t
 
 test("Slack to room: every app hears the message, the room keeps one post, and the lead's answer goes back into the thread", async () => {
   await link();
+  // Dom has no identity link yet: his first message links him by his Slack email.
+  await db.delete(identityLinks);
+  directoryKnowsDom = true;
 
   const first = fake.say({
     channel: CHANNEL,
@@ -354,6 +364,10 @@ test("Slack to room: every app hears the message, the room keeps one post, and t
   });
   const humanPosts = posts().filter((post) => post.authorKind === "user");
   expect(humanPosts).toMatchObject([{ authorId: DOM }]);
+  expect(db.select().from(identityLinks).all()).toMatchObject([
+    { clerkUserId: DOM, email: DOM_EMAIL, externalUserId: DOM_SLACK },
+  ]);
+  expect(fake.ephemerals).toEqual([]);
 
   // The lead heard it once (lead_listens) and answered in the Slack thread, through its own app.
   expect(
@@ -405,6 +419,10 @@ test("a reply in the Slack thread joins the topic, a guest posts as a named gues
   });
   // Dom's reply woke the lead once more. The guest's post woke nobody.
   expect(runs().length).toBe(runsAfterKickoff + 1);
+  // The guest has no Agentum account, so they were told once how to get linked.
+  expect(fake.ephemerals).toMatchObject([
+    { channel: CHANNEL, user: GUEST_SLACK },
+  ]);
 
   fake.say({
     channel: CHANNEL,

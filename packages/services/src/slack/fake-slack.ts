@@ -25,6 +25,8 @@ export interface FakeSlackUser {
   email: string | null;
   id: string;
   name: string;
+  /** The user's own Slack team. Defaults to the workspace's, so a Slack Connect user from elsewhere sets it. */
+  teamId?: string;
 }
 
 export interface FakeSlackChannel {
@@ -282,6 +284,7 @@ export const createFakeSlack = ({
           ...(user.email === null ? {} : { email: user.email }),
         },
         real_name: user.name,
+        team_id: user.teamId ?? config.slackTeamId,
       },
     };
   };

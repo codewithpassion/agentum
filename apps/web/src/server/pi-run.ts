@@ -96,6 +96,7 @@ import { dynamicWorkerSandbox } from "./skill-scripts/dynamic-worker-sandbox.ts"
 import type { RunScriptDeps } from "./skill-scripts/run-script.ts";
 import {
   type ScriptSecrets,
+  SKILL_SCRIPTS_EXTENSION,
   skillScriptsExtension,
 } from "./skill-scripts/run-skill-script.ts";
 import { skillVersionFiles } from "./skill-scripts/skill-version-files.ts";
@@ -125,6 +126,8 @@ const VM_KEY = "linux-vm";
 const COMPUTER_KEY = "computer";
 /** Whether the isolate's agent may reach the network, so the wake path installs the same `web_fetch` the run did. Absent means true. */
 const NETWORK_KEY = "network-access";
+/** Whether the session is a lead's run in its team room, which gets no file-writing, shell, web or script tool. Absent means false. */
+const ROOM_KEY = "team-room";
 /** The compaction policy the newest run's context budget set, so a wake keeps it until the next run sets it again. */
 const COMPACTION_KEY = "compaction";
 /** The run an input file belongs to, so `read_input_file` reads it as that run. */
@@ -197,6 +200,8 @@ export class PiRun extends DurableObject<Env> {
   #faux: Faux | undefined;
   /** The agent's Linux VM, when the agent runs in one. */
   #vm: LinuxVm | undefined;
+  /** The session is a lead's room run: it gets no skill script tool either. */
+  #teamRoom: boolean | undefined;
   #composed: ReturnType<typeof compose> | undefined;
   /** The push of the VM's library changes that runs now, from the lease alarm. */
   #checkpointing: Promise<void> | undefined;
@@ -245,7 +250,8 @@ export class PiRun extends DurableObject<Env> {
       // install order, and a different order after an eviction makes it re-declare every tool.
       this.#switchEnvironment(
         await this.ctx.storage.get<string>(VM_KEY),
-        (await this.ctx.storage.get<boolean>(NETWORK_KEY)) ?? true
+        (await this.ctx.storage.get<boolean>(NETWORK_KEY)) ?? true,
+        (await this.ctx.storage.get<boolean>(ROOM_KEY)) ?? false
       );
       this.#installComputer(
         await this.ctx.storage.get<StoredComputer>(COMPUTER_KEY)
@@ -458,9 +464,16 @@ export class PiRun extends DurableObject<Env> {
    * `agentId` is undefined: the file and shell tools, the skill script backend
    * and the environment follow. The VM is named by the agent id. `networkEnabled`
    * is the isolate's network setting, which decides its `web_fetch` tool.
+   * `teamRoom` gives a room run no VM, and the read-only tools of the isolate.
    */
-  #switchEnvironment(agentId: string | undefined, networkEnabled: boolean) {
-    this.#vm = agentId ? durableVm(this.env.LINUX_VM, agentId) : undefined;
+  #switchEnvironment(
+    agentId: string | undefined,
+    networkEnabled: boolean,
+    teamRoom: boolean
+  ) {
+    this.#teamRoom = teamRoom;
+    this.#vm =
+      agentId && !teamRoom ? durableVm(this.env.LINUX_VM, agentId) : undefined;
     installEnvironmentTools(
       this.registry,
       this.#vm ? "linux-vm" : "isolate",
@@ -474,7 +487,8 @@ export class PiRun extends DurableObject<Env> {
       },
       this.#runScriptDeps(),
       () => this.ctx.storage.get<string>(TASK_FOLDER_KEY),
-      () => this.ctx.storage.get<StoredComputer>(COMPUTER_KEY)
+      () => this.ctx.storage.get<StoredComputer>(COMPUTER_KEY),
+      teamRoom
     );
   }
 
@@ -541,17 +555,25 @@ export class PiRun extends DurableObject<Env> {
 
   /** Stores which environment and network setting the agent of this run asks for, and switches to them. */
   async #selectEnvironment(input: CloudStart) {
-    const inVm = runsInVm(input);
+    // A room run has no VM, whatever the agent's environment says.
+    const teamRoom = input.teamRoom === true;
+    const inVm = runsInVm(input) && !teamRoom;
     if (inVm) {
       await this.ctx.storage.put(VM_KEY, input.run.agentId);
     } else {
       await this.ctx.storage.delete(VM_KEY);
     }
+    if (teamRoom) {
+      await this.ctx.storage.put(ROOM_KEY, true);
+    } else {
+      await this.ctx.storage.delete(ROOM_KEY);
+    }
     const networkEnabled = networkAccessOf(input.agent.runtimeConfig);
     await this.ctx.storage.put(NETWORK_KEY, networkEnabled);
     this.#switchEnvironment(
       inVm ? input.run.agentId : undefined,
-      networkEnabled
+      networkEnabled,
+      teamRoom
     );
   }
 
@@ -772,6 +794,11 @@ export class PiRun extends DurableObject<Env> {
   #applySkills({ run, skills }: StoredSkills) {
     const port = this.#skillsPort(run);
     this.registry.install(skillsExtension(skills, port));
+    if (this.#teamRoom) {
+      // A script is code the agent runs: a room run has none.
+      this.registry.uninstall({ name: SKILL_SCRIPTS_EXTENSION });
+      return;
+    }
     this.registry.install(
       skillScriptsExtension(
         skills,

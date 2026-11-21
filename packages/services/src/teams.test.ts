@@ -347,7 +347,12 @@ test("owners and admins write; other users and read-only credentials cannot writ
         () => service.update(denied, { name: "No", teamId: "t1" }),
         () => service.archive(denied, "t1"),
         () => service.addMember(denied, member("t1")),
-        () => service.removeMember(denied, memberRef("t1")),
+        () =>
+          service.removeMember(denied, {
+            memberId: "u1",
+            memberKind: "user",
+            teamId: "t1",
+          }),
         () => service.setLead(denied, { agentId: null, teamId: "t1" }),
         () => service.setRules(denied, { rules: "", teamId: "t1" }),
       ];
@@ -358,6 +363,66 @@ test("owners and admins write; other users and read-only credentials cannot writ
       );
     })
   );
+});
+
+const ownAgent = (agentId: string, ownerUserId: string) =>
+  db.update(agents).set({ ownerUserId }).where(eq(agents.id, agentId)).run();
+
+test("a team owner cannot add, lead or re-home an agent owned by someone else", async () => {
+  seedTeam("t1", { ownerUserId: "u2" });
+  seedTeam("t2", { ownerUserId: "u2" });
+  await expect(service.addMember(other, member("t1"))).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  await expect(
+    service.addMember(other, member("t1", "a1", true))
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    service.create(other, { leadAgentId: "a1", name: "Lead" })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect((await service.get(other, "t1")).members).toEqual([]);
+  expect(await service.list(other)).toHaveLength(2);
+});
+
+test("the agent's owner and an admin add it, make it lead and move its home", async () => {
+  seedTeam("t1");
+  seedTeam("t2");
+  seedTeam("t3", { ownerUserId: "u2" });
+  ownAgent("a2", "u2");
+  const led = await service.create(user, { leadAgentId: "a1", name: "Led" });
+  expect(led.leadAgentId).toBe("a1");
+  const owned = await service.create(other, {
+    leadAgentId: "a2",
+    name: "Theirs",
+  });
+  expect(owned.leadAgentId).toBe("a2");
+  await service.addMember(user, member("t1"));
+  expect((await service.addMember(user, member("t2", "a1", true))).isHome).toBe(
+    true
+  );
+  expect((await service.addMember(admin, member("t3"))).memberId).toBe("a1");
+  expect(
+    (await service.create(admin, { leadAgentId: "a1", name: "Admin led" }))
+      .leadAgentId
+  ).toBe("a1");
+});
+
+test("the agent's owner removes it from a team they do not own, archived or not", async () => {
+  seedTeam("t1", { ownerUserId: "u2" });
+  seedTeam("t2", { ownerUserId: "u2" });
+  await service.addMember(admin, member("t1"));
+  await service.addMember(admin, member("t2"));
+  await service.archive(other, "t2");
+  await service.removeMember(user, memberRef("t1"));
+  await service.removeMember(user, memberRef("t2"));
+  expect((await service.get(user, "t1")).members).toEqual([]);
+  expect((await service.get(user, "t2")).members).toEqual([]);
+  // Someone who owns neither the team nor the agent still cannot remove it.
+  const stranger: Principal = { ...user, userId: "u3" };
+  await service.addMember(admin, member("t1"));
+  await expect(
+    service.removeMember(stranger, memberRef("t1"))
+  ).rejects.toBeInstanceOf(ForbiddenError);
 });
 
 test("lead must be an agent member, replaces previous lead and clears on removal", async () => {
