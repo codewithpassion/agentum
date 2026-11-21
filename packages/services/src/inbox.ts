@@ -1357,6 +1357,43 @@ export const createInboxService = ({
   };
 
   /**
+   * Wakes the agents a person's Slack post names (or the listening lead) when
+   * the wake that ran after the post was lost. The minute tick's room sweep
+   * picks the post, this only does the wake, as the post's author. A wake that
+   * is refused records its stop, so the sweep does not pick the post again.
+   */
+  const retryPostWake = async (
+    principal: Principal,
+    postId: string
+  ): Promise<WokenRun[]> => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError(NOTICE_ACTION);
+    }
+    const [entry] = await db
+      .select()
+      .from(inboxPosts)
+      .where(eq(inboxPosts.id, postId))
+      .limit(1);
+    if (entry?.authorKind !== "user" || entry.guestName !== null) {
+      return [];
+    }
+    const thread = await findThread(entry.threadId, entry.workspaceId);
+    if (!thread) {
+      return [];
+    }
+    return await wake(
+      {
+        kind: "user",
+        userId: entry.authorId,
+        via: "slack",
+        workspaceId: entry.workspaceId,
+      },
+      thread,
+      entry
+    );
+  };
+
+  /**
    * A person (or a run, for the `inbox_post` tool) posts to a thread. The
    * result lists the runs its mentions started.
    */
@@ -1538,6 +1575,7 @@ export const createInboxService = ({
     postNotice,
     readThread,
     retryNoticeWake,
+    retryPostWake,
     startDiscussion,
     stopDiscussion,
     sweepDiscussions,

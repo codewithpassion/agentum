@@ -296,7 +296,7 @@ export const createRoomOutbound = ({
     await job;
   };
 
-  return { onEvent };
+  return { onEvent, send };
 };
 
 export type RoomOutbound = ReturnType<typeof createRoomOutbound>;

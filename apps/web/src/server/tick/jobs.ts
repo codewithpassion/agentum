@@ -9,6 +9,7 @@ import { dreamJobs } from "./dream.ts";
 import { libraryJobs } from "./library.ts";
 import type { TickJob } from "./registry.ts";
 import { runtimeJobs } from "./runtime.ts";
+import { slackJobs } from "./slack.ts";
 import { spendJobs } from "./spend.ts";
 
 export const tickJobs: readonly TickJob[] = [
@@ -22,4 +23,5 @@ export const tickJobs: readonly TickJob[] = [
   ...libraryJobs,
   ...artifactJobs,
   ...spendJobs,
+  ...slackJobs,
 ];
