@@ -5,11 +5,13 @@ import {
   connectors as connectorRows,
 } from "@repo/db/schema/connectors";
 import { events as eventRows } from "@repo/db/schema/events";
+import { inboxThreads as threadRows } from "@repo/db/schema/inbox";
 import { agentLibraryAccess } from "@repo/db/schema/library";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { slackApps } from "@repo/db/schema/slack";
+import { teams as teamRows } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
@@ -110,6 +112,7 @@ const installSlackApp = (agent: string) => {
 const claim = (machineId: string, runId: string) =>
   runs.claimRunForMachine(machine(machineId), runId, {
     platformUrl: PLATFORM,
+    teamRoomForDaemon: true,
   });
 
 const rejection = async (promise: Promise<unknown>) => {
@@ -226,6 +229,86 @@ test("a claim returns the run, agent, session, token and platform entry", async 
   expect(row?.status).toBe("running");
   expect(row?.claimedBy).toBe("m1");
   expect(row?.leaseUntil).toBe(new Date(nowMs + 90_000).toISOString());
+});
+
+test("a lead's team-room run claim is marked teamRoom, and the same agent's ui run claim is not", async () => {
+  db.insert(teamRows)
+    .values({
+      createdAt: START,
+      id: "ops",
+      leadAgentId: agentId,
+      name: "ops",
+      slug: "ops",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(threadRows)
+    .values({
+      createdAt: START,
+      createdBy: "u1",
+      id: "t1",
+      lastPostAt: START,
+      teamId: "ops",
+      title: "t1",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const room = await start(agentId, "t1");
+  db.update(sessions)
+    .set({ origin: "inbox" })
+    .where(eq(sessions.id, room.sessionId))
+    .run();
+
+  const roomClaim = await claim("m1", room.runId);
+  expect(roomClaim.teamRoom).toBe(true);
+
+  // A claim holds the agent's lane until the run ends, so end the room run first.
+  db.update(runRows)
+    .set({ status: "done" })
+    .where(eq(runRows.id, room.runId))
+    .run();
+  const ui = await start(agentId);
+  const uiClaim = await claim("m1", ui.runId);
+  expect("teamRoom" in uiClaim).toBe(false);
+});
+
+test("a lead's team-room run is not claimed by a daemon without the team-room feature, and stays offered", async () => {
+  db.insert(teamRows)
+    .values({
+      createdAt: START,
+      id: "ops",
+      leadAgentId: agentId,
+      name: "ops",
+      slug: "ops",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(threadRows)
+    .values({
+      createdAt: START,
+      createdBy: "u1",
+      id: "t1",
+      lastPostAt: START,
+      teamId: "ops",
+      title: "t1",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const room = await start(agentId, "t1");
+  db.update(sessions)
+    .set({ origin: "inbox" })
+    .where(eq(sessions.id, room.sessionId))
+    .run();
+
+  const error = await rejection(
+    runs.claimRunForMachine(machine("m1"), room.runId, {
+      platformUrl: PLATFORM,
+    })
+  );
+
+  expect(error).toBeInstanceOf(ForbiddenError);
+  expect(error.message).toContain("teamRoomRequired");
+  expect(status(room.runId)?.status).not.toBe("running");
 });
 
 test("a claim adds a proxy entry for each connector the agent has", async () => {

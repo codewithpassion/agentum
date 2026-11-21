@@ -49,6 +49,7 @@ import type { RequestRecord } from "./requests.ts";
 import type { Clock } from "./runs/types.ts";
 import { visibleSessions } from "./sessions.ts";
 import { inBatches } from "./tasks/reads.ts";
+import { proposalOf, TEAM_PROPOSE_TOOL } from "./teams/proposal.ts";
 import { reportedCostOf } from "./usage-cost.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -166,6 +167,14 @@ const optionalCardFields = (
   ...(deskCard.dream ? { dream: deskCard.dream } : {}),
   ...(deskCard.dreamHeld ? { dreamHeld: deskCard.dreamHeld } : {}),
 });
+
+/** The lead who proposes the change a `team_propose_change` request holds, or null for any other request or a cut input. */
+const proposerOf = (record: RequestRecord | undefined): string | null => {
+  if (record?.toolName !== TEAM_PROPOSE_TOOL || !("input" in record.display)) {
+    return null;
+  }
+  return proposalOf(record.display)?.leadName ?? null;
+};
 
 /** The status of a problem card for a linked Slack room that gets no messages. */
 export const ROOM_PROBLEM_STATUS = "Not reaching Slack";
@@ -516,6 +525,7 @@ export const createRailService = ({
         const kind = deskCard.needsYouKind ?? "approval";
         const agentName =
           agentNames.get(deskCard.agentId) ?? deskCard.startedBy;
+        const proposedBy = proposerOf(record);
         const facts = {
           agentName,
           kind,
@@ -526,6 +536,7 @@ export const createRailService = ({
                 to: mail.mail.to,
               }
             : null,
+          proposedBy,
           title: deskCard.title,
           toolKey: record?.toolKey ?? null,
           toolName: record?.toolName ?? null,
@@ -543,6 +554,7 @@ export const createRailService = ({
             kind,
             mail: mail?.mail ?? null,
             passedOnBy: passedOn.get(deskCard.runId ?? "") ?? null,
+            ...(proposedBy === null ? {} : { proposedBy }),
             runId: deskCard.runId ?? null,
             status: plainStatus(facts),
             threadId: mail?.threadId ?? deskCard.threadId ?? null,

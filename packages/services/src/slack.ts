@@ -50,6 +50,11 @@ import {
 } from "./slack/messages.ts";
 import { withRetry } from "./slack/post.ts";
 import { createRoomIntake } from "./slack/room.ts";
+import {
+  HIDDEN_EMAIL_REPLY,
+  type SenderMatch,
+  UNLINKED_REPLY,
+} from "./slack/sender-match.ts";
 import { verifySlackRequest } from "./slack/signature.ts";
 import { slackSpeakerText } from "./slack/speaker.ts";
 import type { SlackStatus } from "./slack/status.ts";
@@ -84,10 +89,6 @@ const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
 /** One `slack.event_refused` per app and reason in this window. */
 const REFUSAL_WINDOW_MS = 10 * 60 * 1000;
 const NO_TEXT_WITH_FILES = "(see the attached files)";
-const UNLINKED_REPLY =
-  "I don't know you yet. Ask an Agentum admin of this workspace to invite you, using the same email address as your Slack profile.";
-const HIDDEN_EMAIL_REPLY =
-  "I can't see the email address on your Slack profile, so I can't match you to an Agentum account. Ask an Agentum admin of this workspace to invite you, and make your email visible to apps in your Slack profile.";
 const LINKED_REPLY =
   "I linked your Slack account to your Agentum account. Please send your message again.";
 const REGEX_SPECIALS = /[.*+?^${}()|[\]\\]/g;
@@ -220,15 +221,6 @@ export const createSlackService = ({
     return link ?? null;
   };
 
-  const room = createRoomIntake({
-    clock,
-    db,
-    fetch: slackFetch,
-    findLink,
-    inbox,
-    secretsKey,
-  });
-
   /** Posts in the thread the message arrived in, as the app's bot. */
   const replyInThread = async (
     app: SlackAppRow,
@@ -250,36 +242,45 @@ export const createSlackService = ({
   };
 
   /**
-   * The sender has no link yet. Look their email up in Slack; when a Clerk
-   * user has that verified address and belongs to the workspace's
-   * organisation, link them. Anyone else is told to ask for access.
+   * Matches a Slack user with no link to an Agentum account by their Slack
+   * email: a Clerk user with that verified address who belongs to the
+   * workspace's organisation. A match writes the link (a repeat is a no-op,
+   * so every copy of one message may run this). With `ownTeamOnly`, a user
+   * of another Slack team (Slack Connect) is not matched: that organisation
+   * controls their email address, not this one.
    */
-  const meetUnlinkedSender = async (app: SlackAppRow, event: Mention) => {
+  const matchByEmail = async (
+    app: SlackAppRow,
+    slackUserId: string,
+    { ownTeamOnly }: { ownTeamOnly: boolean }
+  ): Promise<SenderMatch> => {
     const token = await secrets.botToken(app);
     if (!token) {
-      return;
+      return { kind: "none", reason: "no_account" };
     }
     const client = createSlackClient({ fetch: slackFetch, token });
-    const lookup = await client.userEmail(event.userId);
-    const email = lookup.kind === "ok" ? lookup.email : null;
-    const clerkUserId = email ? await directory.findUserIdByEmail(email) : null;
+    const lookup = await client.userEmail(slackUserId);
+    // The team comes first: an outside user is skipped whatever their email
+    // shows, and a failed lookup cannot say whose user this is.
+    if (ownTeamOnly && (lookup.kind !== "ok" || lookup.teamId !== app.teamId)) {
+      return { kind: "external" };
+    }
+    if (lookup.kind !== "ok" || lookup.email === null) {
+      return { kind: "none", reason: "hidden_email" };
+    }
+    const { email } = lookup;
+    const clerkUserId = await directory.findUserIdByEmail(email);
     const [workspace] = await db
       .select({ clerkOrgId: workspaces.clerkOrgId })
       .from(workspaces)
       .where(eq(workspaces.id, app.workspaceId))
       .limit(1);
     const member =
-      email &&
       clerkUserId &&
       workspace &&
       (await directory.isOrgMember(clerkUserId, workspace.clerkOrgId));
-    if (!(email && clerkUserId && member)) {
-      await replyInThread(
-        app,
-        event,
-        email ? UNLINKED_REPLY : HIDDEN_EMAIL_REPLY
-      );
-      return;
+    if (!(clerkUserId && member)) {
+      return { kind: "none", reason: "no_account" };
     }
     await db
       .insert(identityLinks)
@@ -287,15 +288,46 @@ export const createSlackService = ({
         clerkUserId,
         createdAt: clock.now().toISOString(),
         email,
-        externalUserId: event.userId,
+        externalUserId: slackUserId,
         id: ulid(clock.now().getTime()),
         provider: "slack",
         teamId: app.teamId,
         workspaceId: app.workspaceId,
       })
       .onConflictDoNothing();
-    await replyInThread(app, event, LINKED_REPLY);
+    return { clerkUserId, kind: "linked" };
   };
+
+  /**
+   * The sender has no link yet. Match them by email and, on a match, ask them
+   * to send again. Anyone else is told to ask for access.
+   */
+  const meetUnlinkedSender = async (app: SlackAppRow, event: Mention) => {
+    const match = await matchByEmail(app, event.userId, { ownTeamOnly: false });
+    if (match.kind === "linked") {
+      await replyInThread(app, event, LINKED_REPLY);
+      return;
+    }
+    await replyInThread(
+      app,
+      event,
+      match.kind === "none" && match.reason === "hidden_email"
+        ? HIDDEN_EMAIL_REPLY
+        : UNLINKED_REPLY
+    );
+  };
+
+  const room = createRoomIntake({
+    clock,
+    db,
+    events,
+    fetch: slackFetch,
+    findLink,
+    inbox,
+    matchSender: (app, slackUserId) =>
+      matchByEmail(app, slackUserId, { ownTeamOnly: true }),
+    secretsKey,
+  });
 
   /**
    * Records what Slack calls the place the session started in, "#channel" or

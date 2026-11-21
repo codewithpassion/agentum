@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
+import { inboxThreads as threadRows } from "@repo/db/schema/inbox";
 import { machines as machineRows } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { slackApps } from "@repo/db/schema/slack";
+import { teams as teamRows } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
 import type { MemoryNote } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
@@ -268,6 +270,49 @@ const attachComputer = (
     .where(eq(agentRows.id, agentId))
     .run();
 };
+
+describe("a lead's team room", () => {
+  const makeLeadRoom = () => {
+    db.insert(teamRows)
+      .values({
+        createdAt: START,
+        id: "ops",
+        leadAgentId: agentId,
+        name: "ops",
+        slug: "ops",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    db.insert(threadRows)
+      .values({
+        createdAt: START,
+        createdBy: "u1",
+        id: "topic-1",
+        lastPostAt: START,
+        teamId: "ops",
+        title: "topic-1",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+  };
+
+  test("the lead's room run is handed to the runner as a team room run", async () => {
+    makeLeadRoom();
+
+    await start({ session: { externalKey: "topic-1", origin: "inbox" } });
+
+    expect(runner.startCalls.at(-1)?.teamRoom).toBe(true);
+  });
+
+  test("the same agent's ui run is not a team room run", async () => {
+    makeLeadRoom();
+
+    await start({ session: { externalKey: "topic-1", origin: "ui" } });
+
+    expect(runner.startCalls.at(-1)).toBeDefined();
+    expect("teamRoom" in (runner.startCalls.at(-1) ?? {})).toBe(false);
+  });
+});
 
 describe("the attached computer", () => {
   test("an agent with no computer gets no computer in the start input", async () => {

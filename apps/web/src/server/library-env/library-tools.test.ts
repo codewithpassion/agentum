@@ -162,13 +162,31 @@ describe("libraryToolsExtension", () => {
       ["edit", "unsafe"],
     ]);
   });
+
+  test("readOnly offers only read, and read may run again", () => {
+    const extension = libraryToolsExtension(
+      async () => "ada",
+      undefined,
+      undefined,
+      true
+    );
+    expect(
+      extension.tools?.map((tool) => [tool.name, tool.replay ?? "unsafe"])
+    ).toEqual([["read", "safe"]]);
+  });
 });
 
 const renderSection = async (
   slugOf: () => Promise<string | undefined>,
-  taskFolderOf?: () => Promise<string | undefined>
+  taskFolderOf?: () => Promise<string | undefined>,
+  readOnly = false
 ): Promise<string> => {
-  const section = libraryToolsExtension(slugOf, taskFolderOf).sections?.[0];
+  const section = libraryToolsExtension(
+    slugOf,
+    taskFolderOf,
+    undefined,
+    readOnly
+  ).sections?.[0];
   if (section === undefined) {
     throw new Error("no section");
   }
@@ -219,6 +237,11 @@ describe("libraryToolsExtension section", () => {
   test("tells the isolate agent about its run_script tool", async () => {
     const text = await renderSection(async () => "ada");
     expect(text).toContain("run_script");
+  });
+
+  test("readOnly leaves the run_script paragraph out", async () => {
+    const text = await renderSection(async () => "ada", undefined, true);
+    expect(text).not.toContain("run_script");
   });
 });
 

@@ -289,6 +289,8 @@ export interface MachineClaim {
     runtimeMachineId: string | null;
     runtimeRef: string | null;
   };
+  /** Set for a lead's run in its team room, the client then starts Claude Code with only read tools and the Agentum MCP server. */
+  teamRoom?: true;
   toolRules?: string[];
 }
 

@@ -6,6 +6,7 @@ import {
   type AnswerPayload,
   isConflict,
   type RequestView,
+  requestHeading,
   viewFromRecord,
 } from "#/components/requests/request-card-logic.ts";
 import { useNowMs } from "#/components/task/use-now-ms.ts";
@@ -120,7 +121,11 @@ export function RoomRequests({
         >
           {entry.view.settled === null ? (
             <p className="font-semibold">
-              {`${directory.get(memberKey("agent", entry.agentId))?.name ?? "An agent"} needs you`}
+              {requestHeading(
+                entry.view,
+                directory.get(memberKey("agent", entry.agentId))?.name ??
+                  "An agent"
+              )}
             </p>
           ) : null}
           <RequestCard

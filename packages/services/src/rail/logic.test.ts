@@ -118,6 +118,28 @@ test("plainTitle and plainStatus for a mail approval", () => {
   expect(plainStatus(card(mail))).toBe("Reply ready");
 });
 
+test("plainTitle names the lead who proposes a change, and a plain approval its tool", () => {
+  expect(
+    plainTitle(
+      card({
+        agentName: "Writer Bo",
+        proposedBy: "Lead Ana",
+        toolKey: "team_propose_change",
+        toolName: "team_propose_change",
+      })
+    )
+  ).toBe("Lead Ana proposes a change to Writer Bo");
+  expect(
+    plainTitle(
+      card({
+        agentName: "Writer Bo",
+        toolKey: "team_propose_change",
+        toolName: "team_propose_change",
+      })
+    )
+  ).toBe("Writer Bo asks before team propose change");
+});
+
 test.each([
   [
     { mail: { recipientName: null, subject: "", to: ["ada@x.com"] } },
