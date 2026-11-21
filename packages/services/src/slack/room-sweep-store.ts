@@ -34,7 +34,7 @@ export interface SweepWindow {
 
 const ULID_TIME_LENGTH = 10;
 const ULID_RANDOM_LENGTH = 16;
-/** A post id is written a little after its `created_at`, so the id bound starts a minute early. */
+/** The id bound starts a minute before the window, so a rounding difference between an id and its `created_at` cannot drop a post. */
 const ID_SLACK_MS = 60_000;
 
 /**
