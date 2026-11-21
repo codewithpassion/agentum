@@ -640,7 +640,7 @@ const leadRoom = async () => {
   return { calls, run, scout };
 };
 
-test("a lead's room run with assign:@handle posts to the room through /mcp with its run token", async () => {
+test("a lead's room run with assign:handle posts to the room through /mcp with its run token", async () => {
   const { calls, run } = await leadRoom();
 
   const { events, summary } = await run("@maya sort out billing assign:scout");

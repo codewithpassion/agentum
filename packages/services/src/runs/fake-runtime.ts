@@ -185,7 +185,7 @@ const proxiedResult = async ({
  * real run token and answers with what came back, so a person can watch an
  * agent use an app without a machine.
  *
- * A lead's room run with an `assign:@handle` or
+ * A lead's room run with an `assign:handle` or
  * `team_propose_change:<field>=<value>` marker in the post calls its team tools
  * (`team_post`, `team_propose_change`) through the app's `/mcp` route with its
  * own run token, so the route's team-room tool filter applies. A person can
