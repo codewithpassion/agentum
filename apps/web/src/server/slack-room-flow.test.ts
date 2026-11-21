@@ -415,7 +415,8 @@ test("a reply in the Slack thread joins the topic, a guest posts as a named gues
   expect(guestPost).toMatchObject({
     authorId: `slack:${SLACK_TEAM}:${GUEST_SLACK}`,
     authorKind: "user",
-    text: `${GUEST_NAME} (Slack guest): Can I join the launch?`,
+    guestName: GUEST_NAME,
+    text: "Can I join the launch?",
   });
   // Dom's reply woke the lead once more. The guest's post woke nobody.
   expect(runs().length).toBe(runsAfterKickoff + 1);

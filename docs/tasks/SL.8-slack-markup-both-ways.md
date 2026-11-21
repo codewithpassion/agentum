@@ -3,9 +3,9 @@ id: SL.8
 title: "Slack markup both ways"
 milestone: SL
 size: S
-status: todo
+status: done
 depends_on: [SL.7]
-branch: null
+branch: task/SL.8-slack-markup-both-ways
 lane: slack
 executor: claude
 ---
@@ -19,3 +19,6 @@ Scope. Convert Slack user, channel and link markup to readable text on the way i
 Check. Unit tests for both converters. Browser with the fake: a message with a mention and a link reads cleanly in the room, and an `@ada` in a person's post goes out as a real mention.
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.
+- 2026-11-21: ready at 4849ee65, review clean after 1 fix round. Browser step skipped under the new rule.
+- 2026-11-21: merged c8931614, merge check passed. Done.

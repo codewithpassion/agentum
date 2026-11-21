@@ -3,9 +3,9 @@ id: FX.4
 title: "Source-scan tests survive a loaded machine"
 milestone: FX
 size: S
-status: in_progress
+status: done
 depends_on: []
-branch: null
+branch: task/FX.4-source-scan-tests-survive-a-loaded-machi
 lane: e2e-scripts
 executor: claude
 ---
@@ -26,3 +26,6 @@ The SL.13 merge check failed once on `apps/web/src/server/app-gateway/exports.te
 ## Log
 - 2026-11-21: added by controller after the SL.13 merge check timed out on this test.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at caf681ac, review clean, reviewer nit (a third file) applied.
+- 2026-11-21: first merge check failed on two proxy.test.ts refresh tests that FX.4 does not touch (pass alone 3 of 3). FX.6 added. Re-checking with the next batch.
+- 2026-11-21: merged c5cc0653, merge check passed. Done.

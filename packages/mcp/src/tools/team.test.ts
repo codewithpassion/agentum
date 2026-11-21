@@ -121,6 +121,7 @@ const POST: PostedInfo["post"] = {
   authorId: "agent-lead",
   authorKind: "agent",
   createdAt: "2026-11-20T00:00:00Z",
+  guestName: null,
   id: "post-1",
   runId: "run-0",
   text: "Hello",

@@ -9,6 +9,7 @@ import {
   memberKey,
   type RoomDirectory,
   type RoomMember,
+  type RoomMemberKind,
 } from "./room-types.ts";
 
 export interface RoomAgentInput {
@@ -25,8 +26,6 @@ export interface RoomPersonInput {
 
 const UNKNOWN_TEAMMATE_NAME = "Teammate";
 const UNKNOWN_AGENT_NAME = "Agent";
-const SLACK_GUEST_PREFIX = "slack:";
-const SLACK_GUEST_POST = /^(.+?) \(Slack guest\): ([\s\S]*)$/;
 const KIND_ORDER: Readonly<Record<RoomMember["kind"], number>> = {
   agent: 0,
   user: 1,
@@ -127,41 +126,21 @@ export const roomMembers = (input: {
   return [...members.values()].sort(compareMembers);
 };
 
-/** The name and message of a post from a Slack guest, or null for any other post. */
-export const guestOfPost = (
-  post: Pick<InboxPost, "authorId" | "authorKind" | "text">
-): { name: string; text: string } | null => {
-  if (
-    post.authorKind !== "user" ||
-    !post.authorId.startsWith(SLACK_GUEST_PREFIX)
-  ) {
-    return null;
-  }
-  const match = SLACK_GUEST_POST.exec(post.text);
-  const name = match?.[1];
-  const text = match?.[2];
-  if (name === undefined || text === undefined) {
-    return null;
-  }
-  return { name, text };
-};
-
 export const memberOfPost = (
-  post: Pick<InboxPost, "authorId" | "authorKind" | "text">,
+  post: Pick<InboxPost, "authorId" | "authorKind" | "guestName">,
   directory: RoomDirectory
 ): RoomMember => {
   const known = directory.get(memberKey(post.authorKind, post.authorId));
   if (known) {
     return known;
   }
-  const guest = guestOfPost(post);
-  if (guest) {
+  if (post.guestName !== null) {
     return {
       avatar: null,
       handle: null,
       id: post.authorId,
       kind: "user",
-      name: guest.name,
+      name: post.guestName,
     };
   }
   return {
@@ -177,6 +156,24 @@ export const memberOfPost = (
 export const authorName = (member: RoomMember, userId: string): string =>
   member.kind === "user" && member.id === userId ? "You" : member.name;
 
+/**
+ * The members who are in a topic. An open topic has everyone in the team. A
+ * limited topic has only the members it is limited to.
+ */
+export const membersInTopic = (
+  members: readonly RoomMember[],
+  limitedTo: readonly { id: string; kind: RoomMemberKind }[]
+): RoomMember[] => {
+  if (limitedTo.length === 0) {
+    return [...members];
+  }
+  const keys = new Set(limitedTo.map((one) => memberKey(one.kind, one.id)));
+  return members.filter((member) =>
+    keys.has(memberKey(member.kind, member.id))
+  );
+};
+
+/** Pass the members who are in the topic, so nobody outside it is named. */
 export const assignedTo = (
   post: Pick<InboxPost, "authorId" | "authorKind" | "text">,
   leadAgentId: string | null,

@@ -3,7 +3,7 @@ id: DR.13
 title: "Dream with a scripted model on local"
 milestone: DR
 size: S
-status: todo
+status: in_progress
 depends_on: [DR.7]
 branch: null
 lane: services-dream
@@ -23,3 +23,7 @@ Dream now on a seeded agent with no key gives the same diary, a question and a h
 
 ## Log
 - 2026-11-20: added from the dream walkthrough.
+- 2026-11-21: dispatched.
+- 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
+- 2026-11-22: back in scope on Dom's call (all deferred tasks except the flaky-test fixes).
+- 2026-11-22: dispatched.

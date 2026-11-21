@@ -73,6 +73,7 @@ touch exited
         prompt: "prompt".into(),
         message: "go".into(),
         gate: None,
+        autocompact: false,
         cancel: CancellationToken::new(),
         events,
     })
@@ -349,6 +350,43 @@ async fn unknown_effort_passes_no_effort_flag() {
 }
 
 #[tokio::test]
+async fn autocompact_flag_follows_the_version_and_the_context_budget() {
+    // (version supports it, claim has a budget) -> flag expected
+    for (supported, budget, expect) in [
+        (true, Some("standard"), Some("200000")),
+        (true, Some("large"), Some("500000")),
+        (true, None, None),
+        (false, Some("small"), None),
+    ] {
+        let (url, server, task) = server().await;
+        let temp = tempfile::tempdir().unwrap();
+        let host = host(&url, temp.path());
+        host.autocompact
+            .store(supported, std::sync::atomic::Ordering::Relaxed);
+        let cwd = host.root.join("WS/A/work");
+        let mut c = claim("r");
+        if let Some(budget) = budget {
+            c["agent"]["runtimeConfig"] = json!({"contextBudget":budget});
+        }
+        let secrets = json!({"API_KEY":"agent-key-unique", "XDG_SECRET":"agent-secret-unique", "PASSWORD":"agent-password-unique"});
+        c["env"] = secrets.clone();
+        let mut argv = default_argv();
+        if let Some(tokens) = expect {
+            argv.extend(["--autocompact", tokens]);
+        }
+        expected(
+            temp.path(),
+            &json!({"argv":argv,"env":secret_env(&secrets),"cwd":cwd,"mode":"secrets","secrets":secrets}),
+        );
+        *server.claim_override.lock().unwrap() = Some(c);
+        host.offer("A".into(), "r".into());
+        wait_calls(&server, "complete", 1).await;
+        assert_eq!(complete(&server)["status"], "done", "{}", complete(&server));
+        task.abort();
+    }
+}
+
+#[tokio::test]
 async fn team_room_claim_adds_read_only_tools_flag_only_when_true() {
     for team_room in [Some(true), Some(false), None] {
         let (url, server, task) = server().await;
@@ -563,6 +601,7 @@ async fn abort_escalates_to_kill_and_reaps_whole_group() {
         prompt: "prompt".into(),
         message: "go".into(),
         gate: None,
+        autocompact: false,
         cancel,
         events,
     })

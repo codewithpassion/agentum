@@ -15,6 +15,7 @@ const CLOSE = "</untrusted-thread-posts>";
 const post = (index: number, text = `post ${index}`): EarlierPost => ({
   authorId: `u${index}`,
   authorKind: "user",
+  guestName: null,
   text,
 });
 
@@ -29,6 +30,21 @@ const postsIn = (output: string): { author: string; text: string }[] => {
     .slice(start + 1, end)
     .map((line) => JSON.parse(line) as { author: string; text: string });
 };
+
+test("a guest's name reaches the agent beside the author id", () => {
+  const output = buildWakeInput({
+    earlier: [{ ...post(1), guestName: "Priya" }, post(2)],
+    text: "hi",
+    threadId: "thread-1",
+  });
+
+  const [guest, member] = output
+    .split("\n")
+    .filter((line) => line.startsWith("{"))
+    .map((line) => JSON.parse(line) as { slackGuest?: string });
+  expect(guest?.slackGuest).toBe("Priya");
+  expect(member?.slackGuest).toBeUndefined();
+});
 
 test("the waking text comes first and unchanged", () => {
   const output = buildWakeInput({

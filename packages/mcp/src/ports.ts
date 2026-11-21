@@ -84,6 +84,8 @@ export interface PostInfo {
   /** `user` or `agent`. */
   authorKind: string;
   createdAt: string;
+  /** The Slack profile name of a guest's post, or null for any other post. */
+  guestName: string | null;
   id: string;
   /** Set on an agent's post: the run that wrote it. */
   runId: string | null;

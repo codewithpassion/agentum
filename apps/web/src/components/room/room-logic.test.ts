@@ -4,10 +4,10 @@ import {
   assignedTo,
   authorName,
   canPostInRoom,
-  guestOfPost,
   isEveryone,
   isRoomMember,
   memberOfPost,
+  membersInTopic,
   requestsOfTopic,
   roomDirectory,
   roomForInboxLink,
@@ -220,7 +220,11 @@ test("roomMembers lists a member once even when a row repeats", () => {
 });
 
 test("memberOfPost returns the directory entry for a known author", () => {
-  const post = { authorId: "u_amir", authorKind: "user" as const, text: "" };
+  const post = {
+    authorId: "u_amir",
+    authorKind: "user" as const,
+    guestName: null,
+  };
   expect(memberOfPost(post, directory)).toEqual(amir);
 });
 
@@ -228,7 +232,7 @@ test("memberOfPost falls back to Agent for an unknown agent author", () => {
   const post = {
     authorId: "agent_gone",
     authorKind: "agent" as const,
-    text: "",
+    guestName: null,
   };
   expect(memberOfPost(post, directory)).toEqual({
     avatar: null,
@@ -240,7 +244,11 @@ test("memberOfPost falls back to Agent for an unknown agent author", () => {
 });
 
 test("memberOfPost falls back to Teammate for an unknown person author", () => {
-  const post = { authorId: "u_ghost", authorKind: "user" as const, text: "" };
+  const post = {
+    authorId: "u_ghost",
+    authorKind: "user" as const,
+    guestName: null,
+  };
   expect(memberOfPost(post, directory)).toEqual({
     avatar: null,
     handle: null,
@@ -250,11 +258,11 @@ test("memberOfPost falls back to Teammate for an unknown person author", () => {
   });
 });
 
-test("memberOfPost names a Slack guest after the prefix in the text", () => {
+test("memberOfPost names a Slack guest after its guest name", () => {
   const post = {
     authorId: "slack:T0TEAM:U0GUEST",
     authorKind: "user" as const,
-    text: "Priya (Slack guest): can we move the call?",
+    guestName: "Priya",
   };
   expect(memberOfPost(post, directory)).toEqual({
     avatar: null,
@@ -269,51 +277,9 @@ test("memberOfPost prefers a known directory member over the guest name", () => 
   const post = {
     authorId: "u_amir",
     authorKind: "user" as const,
-    text: "Priya (Slack guest): hello",
+    guestName: "Priya",
   };
   expect(memberOfPost(post, directory)).toEqual(amir);
-});
-
-test("guestOfPost splits a Slack guest post into name and message", () => {
-  const post = {
-    authorId: "slack:T0TEAM:U0GUEST",
-    authorKind: "user" as const,
-    text: "Priya (Slack guest): can we move the call?",
-  };
-  expect(guestOfPost(post)).toEqual({
-    name: "Priya",
-    text: "can we move the call?",
-  });
-});
-
-test("guestOfPost returns null for a Clerk user whose text contains the phrase", () => {
-  const post = {
-    authorId: "u_amir",
-    authorKind: "user" as const,
-    text: "Priya (Slack guest): she asked me to forward this",
-  };
-  expect(guestOfPost(post)).toBeNull();
-});
-
-test("guestOfPost returns null for an agent post with the prefix", () => {
-  const post = {
-    authorId: "slack:T0TEAM:U0GUEST",
-    authorKind: "agent" as const,
-    text: "Priya (Slack guest): hello",
-  };
-  expect(guestOfPost(post)).toBeNull();
-});
-
-test("guestOfPost keeps every line of a multi-line message", () => {
-  const post = {
-    authorId: "slack:T0TEAM:U0GUEST",
-    authorKind: "user" as const,
-    text: "Priya (Slack guest): line one\n\nline two\nline three",
-  };
-  expect(guestOfPost(post)).toEqual({
-    name: "Priya",
-    text: "line one\n\nline two\nline three",
-  });
 });
 
 test("authorName says You for the viewer and the name for anyone else", () => {
@@ -370,6 +336,37 @@ test("assignedTo leaves out the lead when its own post mentions it", () => {
     text: "@ruby noting this, @amir please act",
   };
   expect(assignedTo(post, "agent_ruby", [ruby, amir])).toEqual([amir]);
+});
+
+test("membersInTopic keeps everyone for an open topic", () => {
+  expect(membersInTopic([ruby, amir, zoe], [])).toEqual([ruby, amir, zoe]);
+});
+
+test("membersInTopic keeps only the members a limited topic names, by id and kind", () => {
+  const agentWithZoesId: RoomMember = { ...ruby, id: "u_zoe" };
+  const limitedTo = [
+    { id: "agent_ruby", kind: "agent" as const },
+    { id: "u_zoe", kind: "user" as const },
+  ];
+  expect(membersInTopic([ruby, amir, zoe, agentWithZoesId], limitedTo)).toEqual(
+    [ruby, zoe]
+  );
+});
+
+test("assignedTo does not list a mentioned member who is not in a limited topic", () => {
+  const post = {
+    authorId: "agent_ruby",
+    authorKind: "agent" as const,
+    text: "@amir please check, @zoe too",
+  };
+  const inTopic = membersInTopic(
+    [ruby, amir, zoe],
+    [
+      { id: "agent_ruby", kind: "agent" },
+      { id: "u_amir", kind: "user" },
+    ]
+  );
+  expect(assignedTo(post, "agent_ruby", inTopic)).toEqual([amir]);
 });
 
 test("topicSessionIds collects the sessions linked to a thread", () => {

@@ -1,23 +1,21 @@
 #!/usr/bin/env bash
 # Controller merge check, run in the main checkout after `git merge --no-ff`.
-# Runs install, check, test and build. Skips the Rust daemon tests (agentum-rs)
-# when the merge doesn't touch apps/agentum, because they take about a minute
-# and nothing else depends on them.
+# Runs install and check, then tests and builds only the packages the merge
+# changed, and skips the tests of their dependencies (turbo `--only` with the `[base...HEAD]` filter). Typecheck in `bun run check` still covers dependents.
+# The scripts tests run only when scripts/ changed.
 # Usage: scripts/merge-check.sh [<base-ref>]   (base defaults to the main side of the latest merge commit)
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 base="${1:-$(git log --merges -1 --format=%H)^1}"
-filter=()
-if git diff --quiet "$base" HEAD -- apps/agentum; then
-  filter=(--filter='!agentum-rs')
-  echo "merge-check: apps/agentum unchanged, skipping agentum-rs tests"
-fi
 bun install || exit 1
 bun run check || exit 1
-bunx turbo run test --continue "${filter[@]}"; test_code=$?
-# The scripts tests run outside turbo, never cached. `bun run test` runs them too.
-bun test ./scripts || test_code=1
+bunx turbo run test --continue --only --filter="[$base...HEAD]"; test_code=$?
+if ! git diff --quiet "$base" HEAD -- scripts; then
+  bun test ./scripts || test_code=1
+else
+  echo "merge-check: scripts unchanged, skipping scripts tests"
+fi
 echo "TEST $test_code"
-bun run build; build_code=$?
+bunx turbo run build --only --filter="[$base...HEAD]"; build_code=$?
 echo "BUILD $build_code"
 [ "$test_code" -eq 0 ] && [ "$build_code" -eq 0 ]

@@ -663,8 +663,9 @@ test("search returns a message of a linked team room, shown with the guest's nam
       authorId: `slack:${TEAM}:${GHOST_USER}`,
       authorKind: "user",
       createdAt: START,
+      guestName: "Gina Guest",
       id: "post_room",
-      text: "Gina Guest (Slack guest): ship the launch notes",
+      text: "ship the launch notes",
       threadId: "th_room",
       workspaceId: WORKSPACE,
     })

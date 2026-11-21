@@ -23,7 +23,7 @@ export interface TeamDiaryInput {
   /** Member copies forgotten after their note became a team note. */
   copiesForgotten: number;
   digestUpdated: boolean;
-  /** Hand-off findings. `asked` is true when the lead was asked to propose a change. */
+  /** Hand-off findings. `asked` is true when a request to the lead was posted. The lead may not have started on it yet. */
   friction: { asked: boolean; summary: string }[];
   /** The text of each team note the dream added. */
   lifted: string[];
@@ -67,7 +67,7 @@ export const writeTeamDiary = (input: TeamDiaryInput): string => {
   for (const item of input.friction) {
     lines.push(
       item.asked
-        ? `Hand-off: ${clip(item.summary)} The lead was asked to propose a change.`
+        ? `Hand-off: ${clip(item.summary)} Asked the lead.`
         : `Hand-off: ${clip(item.summary)}`
     );
   }

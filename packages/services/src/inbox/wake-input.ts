@@ -17,6 +17,8 @@ export const WAKE_DIGEST_CHARS = 4000;
 export interface EarlierPost {
   authorId: string;
   authorKind: "user" | "agent";
+  /** The name of a Slack guest, or null for any other author. */
+  guestName: string | null;
   text: string;
 }
 
@@ -36,6 +38,7 @@ const postLine = (post: EarlierPost): string =>
   escapeAngles(
     JSON.stringify({
       author: `${post.authorKind}:${post.authorId}`,
+      ...(post.guestName === null ? {} : { slackGuest: post.guestName }),
       text: post.text.slice(0, WAKE_CONTEXT_POST_CHARS),
     })
   );

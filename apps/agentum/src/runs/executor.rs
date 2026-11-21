@@ -10,7 +10,11 @@ use crate::{
     library::{self, LibraryApi, Sync, WithoutPrivate},
 };
 use serde_json::{Value, json};
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -206,6 +210,7 @@ pub async fn execute(
         let driver_disk = disk.clone();
         let driver_claim = claim.clone();
         let driver_config = host.config.clone();
+        let driver_autocompact = host.autocompact.load(Ordering::Relaxed);
         let driver_events = events.clone();
         let driver_cancel = cancel.clone();
         let driver = tokio::spawn(async move {
@@ -217,6 +222,7 @@ pub async fn execute(
                 prompt,
                 message,
                 gate,
+                autocompact: driver_autocompact,
                 cancel: driver_cancel,
                 events: driver_events,
             })

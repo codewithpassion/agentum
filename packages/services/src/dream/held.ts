@@ -62,7 +62,7 @@ export const openQuestionCounts = async (
   return new Map(rows.map((row) => [row.id, row.open]));
 };
 
-/** The held dreams this person may decide: the owner's agents, or every agent for an org admin. */
+/** The held dreams this person may decide: the agents they own or back up, or every agent for an org admin. */
 export const heldBatchesFor = async (
   db: Database,
   member: UserPrincipal
@@ -87,7 +87,7 @@ export const heldBatchesFor = async (
             .from(memoryChanges)
             .where(and(eq(memoryChanges.dreamRunId, dreamRuns.id), stillHeld))
         ),
-        // Only the owner (else the creator) or an org admin can decide, so only they get the card.
+        // Only the owner (else the creator), the backup or an org admin can decide, so only they get the card.
         member.isAdmin === true
           ? undefined
           : or(
@@ -95,7 +95,8 @@ export const heldBatchesFor = async (
               and(
                 isNull(agents.ownerUserId),
                 eq(agents.createdBy, member.userId)
-              )
+              ),
+              eq(agents.backupUserId, member.userId)
             )
       )
     );

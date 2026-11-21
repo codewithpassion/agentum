@@ -134,6 +134,7 @@ export const makeDreamWorld = (
           threadId: "thread_diary",
         });
       },
+      retryNoticeWake: () => Promise.resolve([]),
     },
     library: world.library,
     managedKeys: {

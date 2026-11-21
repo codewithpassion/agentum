@@ -578,7 +578,7 @@ test("repeated hand-off rework asks the lead to propose a change; with no lead i
     .run();
   const run = await w.dream.runTeamNow(person(OWNER), TEAM);
   expect(run.diary).toContain(
-    "Hand-off: Tally re-formatted Quill's contact lists four times."
+    "Hand-off: Tally re-formatted Quill's contact lists four times. Asked the lead."
   );
   expect(w.notices.some((notice) => notice.text === run.diary)).toBe(false);
   const ask = defined(w.notices.find((notice) => notice.wake !== undefined));
@@ -618,7 +618,7 @@ test("repeated hand-off rework asks the lead to propose a change; with no lead i
   const before = w.notices.length;
   const bare = await w.dream.runTeamNow(person(OWNER), BARE);
   expect(bare.diary).toContain("Hand-off:");
-  expect(bare.diary).not.toContain("asked to propose");
+  expect(bare.diary).not.toContain("Asked the lead.");
   expect(
     w.notices.slice(before).filter((notice) => notice.wake !== undefined)
   ).toEqual([]);
