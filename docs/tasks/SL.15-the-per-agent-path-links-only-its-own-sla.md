@@ -3,9 +3,9 @@ id: SL.15
 title: "The per-agent path links only its own Slack team's users"
 milestone: SL
 size: S
-status: in_progress
+status: ready
 depends_on: []
-branch: null
+branch: task/SL.15-the-per-agent-path-links-only-its-own-sla
 lane: slack
 executor: claude
 ---
@@ -28,3 +28,4 @@ From the SL gate review, round 2 (`docs/reviews/SL-2.md`, must-fix 1, written th
 ## Log
 - 2026-11-21: added by controller from the SL gate review, round 2. Side effects accepted, see the review's controller decisions.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 0606e01a, review clean with no fix rounds. Note: a link written earlier for an outside Slack user stays until someone deletes it. Such links exist only if an outside user mentioned an app before this fix. Dom can ask for a one-off cleanup.
