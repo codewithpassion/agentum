@@ -218,6 +218,8 @@ export interface CardFacts {
   } | null;
   /** Set only on kind "problem". */
   problem?: "bounced" | "failed" | "interrupted" | null;
+  /** The name of the lead who proposes a change to the card's agent, set only on a `team_propose_change` approval. */
+  proposedBy?: string | null;
   /** The existing desk title; kept for every kind except approvals. */
   title: string;
   toolKey: string | null;
@@ -285,6 +287,9 @@ export const plainTitle = (card: CardFacts): string => {
     const who = recipientWho(card.mail);
     const subject = mailTitle(card.mail.subject);
     return subject ? `Reply to ${who}: ${subject}` : `Reply to ${who}`;
+  }
+  if (card.proposedBy) {
+    return `${card.proposedBy} proposes a change to ${card.agentName}`;
   }
   const label =
     labelFor(card.toolKey) ?? toolWords(card.toolKey, card.toolName);
