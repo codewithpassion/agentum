@@ -35,8 +35,10 @@ import {
   eq,
   gt,
   inArray,
+  isNull,
   lt,
   notExists,
+  or,
   sql,
 } from "drizzle-orm";
 import { monotonicFactory } from "ulidx";
@@ -114,6 +116,12 @@ export const threadCreateInputSchema = z.strictObject({
 export type ThreadCreateInput = z.input<typeof threadCreateInputSchema>;
 
 export const threadReadInputSchema = z.strictObject({ threadId: idString });
+
+/** `teamId` lists one team room's topics, filtered before the limit. Without it the list is the whole workspace's, for the desk. */
+export const threadListInputSchema = z
+  .strictObject({ teamId: idString.optional() })
+  .optional();
+export type ThreadListInput = z.input<typeof threadListInputSchema>;
 
 export const clearAttentionInputSchema = z.strictObject({
   threadId: idString,
@@ -563,19 +571,48 @@ export const createInboxService = ({
     return toThread(row);
   };
 
-  const listThreads = async (principal: Principal): Promise<ThreadRecord[]> => {
+  /**
+   * The team filter runs in SQL so the limit counts only that room's topics.
+   * Everyone also lists the topics from before teams, which have no team.
+   */
+  const inTeam = async (workspaceId: string, teamId: string) => {
+    const [team] = await db
+      .select({ slug: teams.slug })
+      .from(teams)
+      .where(and(eq(teams.workspaceId, workspaceId), eq(teams.id, teamId)));
+    if (!team) {
+      return null;
+    }
+    return team.slug === EVERYONE_TEAM_SLUG
+      ? or(eq(inboxThreads.teamId, teamId), isNull(inboxThreads.teamId))
+      : eq(inboxThreads.teamId, teamId);
+  };
+
+  const listThreads = async (
+    principal: Principal,
+    rawInput?: ThreadListInput
+  ): Promise<ThreadRecord[]> => {
+    const input = threadListInputSchema.parse(rawInput);
     const member = requireMember(principal, READ_ACTION);
     authorize(member, READ_ACTION, {
       kind: INBOX_KIND,
       workspaceId: member.workspaceId,
     });
+    const room =
+      input?.teamId === undefined
+        ? undefined
+        : await inTeam(member.workspaceId, input.teamId);
+    if (room === null) {
+      return [];
+    }
     const rows = await db
       .select()
       .from(inboxThreads)
       .where(
         and(
           eq(inboxThreads.workspaceId, member.workspaceId),
-          topicVisibleTo(roomerOf(member))
+          topicVisibleTo(roomerOf(member)),
+          room
         )
       )
       .orderBy(desc(inboxThreads.lastPostAt), desc(inboxThreads.id))

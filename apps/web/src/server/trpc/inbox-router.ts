@@ -3,6 +3,7 @@ import {
   clearAttentionInputSchema,
   postInputSchema,
   threadCreateInputSchema,
+  threadListInputSchema,
   threadReadInputSchema,
 } from "@repo/services/inbox";
 import { router, workspaceProcedure } from "./init.ts";
@@ -18,9 +19,11 @@ export const inboxRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.services.inbox.createThread(ctx.principal, input)
     ),
-  listThreads: workspaceProcedure.query(({ ctx }) =>
-    ctx.services.inbox.listThreads(ctx.principal)
-  ),
+  listThreads: workspaceProcedure
+    .input(threadListInputSchema)
+    .query(({ ctx, input }) =>
+      ctx.services.inbox.listThreads(ctx.principal, input)
+    ),
   post: workspaceProcedure
     .input(postInputSchema)
     .mutation(({ ctx, input }) =>
