@@ -6,7 +6,7 @@ A nullable `guest_name` column on `inbox_posts` (migration 0061), not a new `gue
 ## Verdicts
 - Round 1 (72c0776c): must-fix. Moving the name out of the text hid it from agents: the wake context (`earlierPosts`), the MCP `PostInfo` ports and the dream's `collectRoomPosts`.
 - Round 2 (b1ad8321, fix commit only): clean. The wake line carries `slackGuest`, `inbox_read` shows "(Slack guest NAME)", the dream credits "NAME (Slack guest)".
-- Browser proof at 1280x800 and 390x844: pass, see `SL.7/browser.md`.
+- Browser proof: skipped by Dom's rule. Browser steps move to one pass at the end of v4. A verifier did see the room at both sizes before the rule (guest name, Slack guest tag, no prefix, no overflow), but its report is not kept.
 
 ## Migration
 0061 adds the column and splits the `<Name> (Slack guest): ` prefix of existing guest posts (user posts with a `slack:` author id) at the first separator. A `slack:` post with no prefix gets the name "Someone". Member posts that quote the phrase are untouched. Tested in `packages/db/src/guest-name-migration.test.ts`.
