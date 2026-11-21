@@ -11,7 +11,7 @@
  * Agentum account and is in the team posts as that person, and their post wakes
  * agents through the room (`@slug` for an app they mention, else the lead when
  * the team's `lead_listens` is on). A person with no link yet is matched by
- * their Slack email, as in a DM, and linked on a match, but only when they
+ * their Slack email, as on the per-agent path, and linked on a match, but only when they
  * belong to the app's own Slack team (a Slack Connect user's email is not
  * ours to trust). Anyone else posts as a named guest, and a guest's post wakes
  * nobody. A guest with no match is told once, privately in the thread, how to
