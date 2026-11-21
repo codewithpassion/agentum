@@ -1,5 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
+import { events as eventRows } from "@repo/db/schema/events";
 import {
   inboxPosts as inboxPostRows,
   inboxThreads as inboxThreadRows,
@@ -417,4 +419,51 @@ test("a hand-off request refused for the wake budget wakes the lead on a later t
   nowMs += 60_000;
   expect(await retrier.retry()).toEqual({ woken: [] });
   expect(runsOf("pelican")).toHaveLength(11);
+});
+
+test("two refused hand-off requests are answered by one retried wake that carries both, and a refusal that is not the budget records nothing", async () => {
+  build();
+  await addAgents("pelican");
+  const teamId = seedTeam({
+    lead: "pelican",
+    members: { agents: ["pelican"], users: ["u1"] },
+  });
+  db.update(teamRows)
+    .set({ ownerUserId: "u1" })
+    .where(eq(teamRows.id, teamId))
+    .run();
+  const retrier = createHandOffRetrier({ clock, db, inbox });
+  const stops = () =>
+    db
+      .select()
+      .from(eventRows)
+      .where(eq(eventRows.type, "inbox.loop_stopped"))
+      .all();
+  const ask = (text: string) =>
+    notice(teamId, {
+      text: `${HAND_OFF_HEADING}\n${text}`,
+      title: TEAM_DIARY_TOPIC,
+    });
+  await ask("First rework.");
+  nowMs += 1000;
+  const second = await ask("Second rework.");
+
+  // A paused lead refuses the run, and the refusal is not recorded.
+  db.update(agentRows)
+    .set({ status: "paused" })
+    .where(eq(agentRows.id, agentId("pelican")))
+    .run();
+  expect(await retrier.retry()).toEqual({ woken: [] });
+  expect(stops()).toEqual([]);
+
+  db.update(agentRows)
+    .set({ status: "active" })
+    .where(eq(agentRows.id, agentId("pelican")))
+    .run();
+  nowMs += 1000;
+  expect(await retrier.retry()).toEqual({ woken: [second.postId] });
+  const [run, ...others] = runsOf("pelican");
+  expect(others).toEqual([]);
+  expect(run?.inputText).toContain("First rework.");
+  expect(run?.inputText).toContain("Second rework.");
 });

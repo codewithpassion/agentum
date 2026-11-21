@@ -35,6 +35,7 @@ export const createHandOffRetrier = (deps: HandOffRetryDeps) => {
         leadAgentId: teams.leadAgentId,
         ownerUserId: teams.ownerUserId,
         postId: inboxPosts.id,
+        teamId: teams.id,
       })
       .from(inboxPosts)
       .innerJoin(inboxThreads, eq(inboxThreads.id, inboxPosts.threadId))
@@ -50,8 +51,13 @@ export const createHandOffRetrier = (deps: HandOffRetryDeps) => {
         )
       )
       .orderBy(asc(inboxPosts.id));
+    // The newest request of a team stands for all of them: the wake input
+    // carries the room posts since the lead last spoke, the older requests included.
+    const newest = new Map(
+      requests.map((request) => [request.teamId, request])
+    );
     const woken: string[] = [];
-    for (const request of requests) {
+    for (const request of newest.values()) {
       if (!(request.leadAgentId && request.ownerUserId)) {
         continue;
       }
@@ -66,7 +72,7 @@ export const createHandOffRetrier = (deps: HandOffRetryDeps) => {
           woken.push(request.postId);
         }
       } catch {
-        // The next tick tries again.
+        // Only a failure that is not a refusal gets here. The next tick tries again.
       }
     }
     return { woken };
