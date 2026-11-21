@@ -148,6 +148,7 @@
     "./slack/room-out": "./src/slack/room-out.ts",
     "./slack/room-channels": "./src/slack/room-channels.ts",
     "./slack/room-status": "./src/slack/room-status.ts",
+    "./slack/room-sweep": "./src/slack/room-sweep.ts",
     "./slack/signature": "./src/slack/signature.ts",
     "./slack/status": "./src/slack/status.ts",
     "./slack/threads": "./src/slack/threads.ts",

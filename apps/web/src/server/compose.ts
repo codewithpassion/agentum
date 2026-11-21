@@ -292,6 +292,10 @@ import { createRoomChannels } from "@repo/services/slack/room-channels";
 import { createRoomOutbound } from "@repo/services/slack/room-out";
 import { createRoomStatus } from "@repo/services/slack/room-status";
 import {
+  createRoomSweep,
+  type RoomSweep,
+} from "@repo/services/slack/room-sweep";
+import {
   createDbStatusPorts,
   createSlackStatus,
 } from "@repo/services/slack/status";
@@ -563,6 +567,7 @@ export interface Services {
   slackApps: SlackAppsService;
   slackHistory: SlackHistoryService;
   slackRequests: SlackRequests;
+  slackRoomSweep: RoomSweep;
   slackSend: SlackSendService;
   spend: SpendService;
   takeover: TakeoverService;
@@ -1014,17 +1019,23 @@ export const composeWith = ({
   });
   events.onAppend(slackRequests.onEvent);
   // A post in a team room whose team is linked to a Slack channel goes out to the channel.
-  events.onAppend(
-    createRoomOutbound({
-      clock: infra.clock,
-      db,
-      defer: infra.defer,
-      events,
-      fetch: connectorFetch,
-      people: infra.people,
-      secretsKey: infra.secretsKey,
-    }).onEvent
-  );
+  const roomOutbound = createRoomOutbound({
+    clock: infra.clock,
+    db,
+    defer: infra.defer,
+    events,
+    fetch: connectorFetch,
+    people: infra.people,
+    secretsKey: infra.secretsKey,
+  });
+  events.onAppend(roomOutbound.onEvent);
+  // The minute tick's backup for the wake and the send above, which run in `waitUntil`.
+  const slackRoomSweep = createRoomSweep({
+    clock: infra.clock,
+    db,
+    send: roomOutbound.send,
+    wake: inbox.retryPostWake,
+  });
   // Catches `slack.delivered`, which the gateway writes through this instance.
   events.onAppend(slackStatus.onEvent);
   const artifactErrors = createArtifactErrorsService({
@@ -1557,6 +1568,7 @@ export const composeWith = ({
       slackApps,
       slackHistory,
       slackRequests,
+      slackRoomSweep,
       slackSend,
       spend,
       takeover,
