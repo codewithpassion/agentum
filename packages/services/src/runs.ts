@@ -413,10 +413,10 @@ export interface RunsServiceOptions {
     Partial<Pick<LibraryService, "read">>;
   people?: PeopleLookup;
   /**
-   * Where the app's connector proxy is, for the fake runtime's tool mode: the
+   * Where the app is, for the fake runtime's tool mode (`/api/proxy`) and lead mode (`/mcp`): the
    * deployment's origin and a fetch that reaches it (a Worker cannot fetch its
    * own hostname). Only read when `devFakeRuntime` is true. Without it, a fake
-   * run that asks for a tool fails.
+   * run that asks for a tool, or a lead run that uses a team tool, fails.
    */
   proxy?: ProxyAccess;
   /**
