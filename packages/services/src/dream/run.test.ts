@@ -201,6 +201,51 @@ test("the learn level ask_first holds the whole plan as one batch until the owne
   ).rejects.toMatchObject({ code: "conflict" });
 });
 
+const heldBatchWorld = async () => {
+  const w = makeDreamWorld(keepsOne("Mia wants Google Docs"));
+  w.setRules({ learnLevel: "ask_first" });
+  await w.db
+    .update(agents)
+    .set({ backupUserId: USER_A })
+    .where(eq(agents.id, AGENT))
+    .run();
+  w.say("Mia wants drafts as Google Docs");
+  const run = await w.dream.runNow(w.owner, AGENT);
+  return { run, w };
+};
+
+test("the backup owner approves a held batch", async () => {
+  const { run, w } = await heldBatchWorld();
+  const approved = await w.dream.decide(person(USER_A), {
+    decision: "approve",
+    dreamRunId: run.id,
+  });
+  expect(approved.heldChanges).toBe(0);
+  const notes = await w.service.list(w.owner, { agentId: AGENT });
+  expect(notes.map((item) => item.text)).toEqual(["Mia wants Google Docs"]);
+});
+
+test("an org admin rejects a held batch", async () => {
+  const { run, w } = await heldBatchWorld();
+  const before = await w.files();
+  const rejected = await w.dream.decide(person(USER_B, { isAdmin: true }), {
+    decision: "reject",
+    dreamRunId: run.id,
+  });
+  expect(rejected.heldChanges).toBe(0);
+  expect(await w.files()).toEqual(before);
+});
+
+test("a plain member cannot decide a held batch, and memory stays as it was", async () => {
+  const { run, w } = await heldBatchWorld();
+  const before = await w.files();
+  await expect(
+    w.dream.decide(person(USER_B), { decision: "approve", dreamRunId: run.id })
+  ).rejects.toMatchObject({ code: "forbidden" });
+  expect(await w.files()).toEqual(before);
+  expect((await w.dream.changes(w.owner, run.id))[0]?.status).toBe("held");
+});
+
 test("rejecting a held batch changes nothing", async () => {
   const w = makeDreamWorld(keepsOne("Mia wants Google Docs"));
   w.setRules({ learnLevel: "ask_first" });

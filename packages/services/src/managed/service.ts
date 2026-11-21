@@ -1764,8 +1764,9 @@ export const createManagedService = ({
   /**
    * A run was cancelled. If its input reached the session, the session is
    * closed so the stale idle it leaves behind is never taken for the next
-   * run's, and Anthropic is told to stop. A run that was still waiting (its
-   * session may be busy with another run) touches nothing.
+   * run's, and Anthropic is told to stop. The session's usage is read first and
+   * recorded on the cancelled run. A run that was still waiting (its session
+   * may be busy with another run) touches nothing.
    */
   const interrupt = async (runId: string): Promise<void> => {
     const run = await loadRun(db, runId);
@@ -1777,8 +1778,14 @@ export const createManagedService = ({
       .from(managedRuns)
       .where(eq(managedRuns.runId, runId))
       .limit(1);
-    if (sent?.sentAt) {
-      await abandon(run);
+    if (!sent?.sentAt) {
+      return;
+    }
+    // Read before `abandon` closes the session, then reported as a late report on the cancelled run.
+    const usage = await usageOfSessionOf(run);
+    await abandon(run);
+    if (usage) {
+      await failRun(run, "The run was cancelled", usage);
     }
   };
 

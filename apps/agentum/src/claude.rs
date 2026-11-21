@@ -4,7 +4,7 @@ use crate::{
     files::Disk,
     runs::{
         api::{Failure, Result},
-        helpers::{Masker, agent_env, effort, max_turns, stop_message, text},
+        helpers::{Masker, agent_env, context_tokens, effort, max_turns, stop_message, text},
     },
 };
 use serde_json::{Value, json};
@@ -115,17 +115,18 @@ pub fn completion(
     }
     body
 }
-pub fn version_ok(version: &str) -> bool {
+fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
     let re = regex::Regex::new(r"(\d+)\.(\d+)\.(\d+)").unwrap();
-    re.captures(version)
-        .and_then(|c| {
-            Some((
-                c[1].parse::<u64>().ok()?,
-                c[2].parse::<u64>().ok()?,
-                c[3].parse::<u64>().ok()?,
-            ))
-        })
-        .is_some_and(|v| v >= (2, 1, 300))
+    let c = re.captures(version)?;
+    Some((c[1].parse().ok()?, c[2].parse().ok()?, c[3].parse().ok()?))
+}
+pub fn version_ok(version: &str) -> bool {
+    parse_version(version).is_some_and(|v| v >= (2, 1, 300))
+}
+/// `--autocompact` first appears in Claude Code 2.1.327. A version that can't
+/// be read counts as too old.
+pub fn supports_autocompact(version: &str) -> bool {
+    parse_version(version).is_some_and(|v| v >= (2, 1, 327))
 }
 /// Build non-conversation probes. Tests never invoke this on a real binary.
 pub fn probe(
@@ -268,6 +269,8 @@ pub struct Driver<'a> {
     pub prompt: String,
     pub message: String,
     pub gate: Option<Arc<Gate>>,
+    /// The installed Claude Code accepts `--autocompact`, read once at daemon start.
+    pub autocompact: bool,
     pub cancel: CancellationToken,
     pub events: mpsc::Sender<Value>,
 }
@@ -280,6 +283,7 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
         prompt,
         message,
         gate,
+        autocompact,
         cancel,
         events,
     } = options;
@@ -332,9 +336,11 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
     {
         command.arg("--max-budget-usd").arg(budget.to_string());
     }
-    // `contextBudget` rides in the same claim but is not passed on: Claude Code's
-    // `--autocompact` is not known to exist in every version this client accepts
-    // (2.1.300 and up), and a flag it rejects would fail the run.
+    // Older versions (this client accepts 2.1.300 and up) reject `--autocompact`,
+    // and a flag they reject would fail the run.
+    if autocompact && let Some(tokens) = context_tokens(&claim["agent"]["runtimeConfig"]) {
+        command.arg("--autocompact").arg(tokens.to_string());
+    }
     if let Some(level) = effort(&claim["agent"]["runtimeConfig"]) {
         command.args(["--effort", level]);
     }

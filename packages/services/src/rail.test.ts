@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
+import { dreamRuns } from "@repo/db/schema/dreams";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import {
   agentMailboxes,
@@ -1454,6 +1455,33 @@ test("held memory uses creator fallback and excludes decided, rejected, foreign,
     .set({ status: "rejected" })
     .where(eq(memoryChanges.id, "held"));
   expect((await view("everyone")).needsYou).toHaveLength(0);
+});
+
+test("a held dream batch reaches the owner, then the backup after the delay, and never a plain member", async () => {
+  await setOwners(a1, "u2", "u3");
+  await db.insert(dreamRuns).values({
+    agentId: a1,
+    id: "dream-held",
+    startedAt: new Date(now).toISOString(),
+    status: "done",
+    workspaceId: "w1",
+  });
+  await heldNote("dream-note", { dreamRunId: "dream-held" });
+  const heldDreamIds = async (who: string) =>
+    (await view("mine", user(who))).needsYou.flatMap((item) =>
+      item.cards.filter((card) => card.kind === "dream_held")
+    );
+
+  expect(await heldDreamIds("u2")).toHaveLength(1);
+  expect(await heldDreamIds("u3")).toHaveLength(0);
+  now += RAIL_ESCALATE_AFTER_MS;
+  expect(await heldDreamIds("u3")).toHaveLength(1);
+  expect((await view("mine", user("u3"))).needsYou[0]).toMatchObject({
+    assigneeUserId: "u2",
+    escalatedToMe: true,
+  });
+  expect(await heldDreamIds("u4")).toHaveLength(0);
+  expect((await view("everyone", user("u4"))).needsYou).toEqual([]);
 });
 
 test("a private held note goes to its person alone, with no backup step", async () => {

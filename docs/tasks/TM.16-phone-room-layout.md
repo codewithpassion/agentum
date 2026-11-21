@@ -20,3 +20,5 @@ Check. Browser at 390x844.
 
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
+- 2026-11-22: back in scope on Dom's call (all deferred tasks except the flaky-test fixes).

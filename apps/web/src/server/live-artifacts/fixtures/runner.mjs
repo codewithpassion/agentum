@@ -92,6 +92,8 @@ async function connect(token, room = "test") {
   const status = await new Promise((resolve) => {
     ws.addEventListener("open", () => resolve(101), { once: true });
     ws.addEventListener("error", () => resolve(403), { once: true });
+    // A socket that neither opens nor errors would stall the whole run.
+    setTimeout(() => resolve(408), SETTLE_MS).unref();
   });
   await pause(20);
   return {

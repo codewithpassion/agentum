@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import { NewTeamDialog } from "./new-team-dialog.tsx";
+import type { StarterKey, StarterReview } from "./starter-logic.ts";
 import {
   createTeamWithMembers,
   type NewTeamInput,
@@ -24,6 +25,15 @@ export function NewTeamButton({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const openDialog = useCallback(() => setOpen(true), []);
+  const openTeam = useCallback(
+    async (teamId: string) => {
+      setOpen(false);
+      // Find lists the teams, so the layout's data is read again too.
+      await router.invalidate();
+      await router.navigate({ params: { teamId }, to: "/teams/$teamId" });
+    },
+    [router]
+  );
   const create = useCallback(
     async (input: NewTeamInput) => {
       const trpc = getTrpc();
@@ -39,15 +49,22 @@ export function NewTeamButton({
           `${team.name} was created, but ${failed.length} could not be added (${failed[0]?.reason}). Add them on the team page.`
         );
       }
-      setOpen(false);
-      // Find lists the teams, so the layout's data is read again too.
-      await router.invalidate();
-      await router.navigate({
-        params: { teamId: team.id },
-        to: "/teams/$teamId",
-      });
+      await openTeam(team.id);
     },
-    [router]
+    [openTeam]
+  );
+  const loadStarter = useCallback(
+    (key: StarterKey) => getTrpc().agentBuilder.teamFromStarter.mutate(key),
+    []
+  );
+  const createStarter = useCallback(
+    async (review: StarterReview) => {
+      const team = await getTrpc().agentBuilder.createTeam.mutate({
+        draft: review.draft,
+      });
+      await openTeam(team.id);
+    },
+    [openTeam]
   );
   return (
     <>
@@ -56,7 +73,9 @@ export function NewTeamButton({
       </Button>
       <NewTeamDialog
         agents={agents}
+        loadStarter={loadStarter}
         onCreate={create}
+        onCreateStarter={createStarter}
         onOpenChange={setOpen}
         open={open}
         people={people}

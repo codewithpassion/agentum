@@ -25,3 +25,5 @@ FX.4's dispatcher saw `guest-execution.test.ts` (apps/web) fail twice in full `b
 
 ## Log
 - 2026-11-21: added by controller from the FX.4 report.
+- 2026-11-21: dispatched.
+- 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).

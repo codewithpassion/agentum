@@ -17,6 +17,8 @@ import {
   NativeSelectOption,
 } from "#/components/ui/native-select";
 import { errorMessage } from "#/lib/error-message";
+import type { StarterReview as Review, StarterKey } from "./starter-logic.ts";
+import { StarterChoices, StarterReview } from "./starter-review.tsx";
 import {
   type NewTeamInput,
   nameError,
@@ -239,20 +241,77 @@ export function NewTeamForm({
   );
 }
 
+interface NewTeamBodyProps extends NewTeamFormProps {
+  /** Reads a starter's draft for review. */
+  loadStarter: (key: StarterKey) => Promise<Review>;
+  /** Makes the reviewed starter as a whole team. Rejects with an Error to show. */
+  onCreateStarter: (review: Review) => Promise<void>;
+}
+
+/** The starters beside the blank form. Picking a starter swaps the form for its review. */
+export function NewTeamBody({
+  loadStarter,
+  onCreateStarter,
+  ...form
+}: NewTeamBodyProps) {
+  const [review, setReview] = useState<Review | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pick = useCallback(
+    async (key: StarterKey) => {
+      setLoading(true);
+      setError(null);
+      try {
+        setReview(await loadStarter(key));
+      } catch (caught) {
+        setError(errorMessage(caught));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loadStarter]
+  );
+  const back = useCallback(() => setReview(null), []);
+  if (review !== null) {
+    return (
+      <StarterReview
+        onBack={back}
+        onConfirm={onCreateStarter}
+        review={review}
+      />
+    );
+  }
+  return (
+    <div className="flex flex-col gap-5">
+      <StarterChoices busy={loading} onPick={pick} />
+      {error === null ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          {error}
+        </p>
+      )}
+      <NewTeamForm {...form} />
+    </div>
+  );
+}
+
 /**
  * The New team dialog: a name, the agents and people to put in, and which agent
  * leads. `onCreate` makes the team and rejects with an Error to show in the dialog.
  */
 export function NewTeamDialog({
   agents,
+  loadStarter,
   onCreate,
+  onCreateStarter,
   onOpenChange,
   open,
   people,
   youId,
 }: {
   agents: readonly TeamAgent[];
+  loadStarter: (key: StarterKey) => Promise<Review>;
   onCreate: (input: NewTeamInput) => Promise<void>;
+  onCreateStarter: (review: Review) => Promise<void>;
   onOpenChange: (open: boolean) => void;
   open: boolean;
   people: readonly TeamPerson[] | null;
@@ -269,10 +328,12 @@ export function NewTeamDialog({
             hands out the work.
           </DialogDescription>
         </DialogHeader>
-        <NewTeamForm
+        <NewTeamBody
           agents={agents}
+          loadStarter={loadStarter}
           onCancel={cancel}
           onCreate={onCreate}
+          onCreateStarter={onCreateStarter}
           people={people}
           youId={youId}
         />

@@ -3,7 +3,7 @@ id: TM.14
 title: "Fake runtime for a team lead"
 milestone: TM
 size: S
-status: todo
+status: in_progress
 depends_on: []
 branch: null
 lane: runtimes
@@ -20,3 +20,7 @@ Check. A runs test with the scripted text. Browser: the walkthrough with no scri
 
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.
+- 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
+- 2026-11-22: back in scope on Dom's call (all deferred tasks except the flaky-test fixes).
+- 2026-11-22: dispatched.

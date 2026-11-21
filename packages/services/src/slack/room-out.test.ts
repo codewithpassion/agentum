@@ -11,7 +11,10 @@ import {
   teamSlackLinks,
 } from "@repo/db/schema/slack";
 import { memberProfiles, teamMembers, teams } from "@repo/db/schema/teams";
-import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
+import {
+  identityLinks,
+  workspaces as workspaceRows,
+} from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { encryptSecret, importSecretsKey } from "../crypto.ts";
@@ -433,6 +436,30 @@ test("a person's post goes out through the lead's app with the person's name in 
   ]);
 });
 
+test("a post goes out as mrkdwn, and an @name that is one linked person becomes a mention", async () => {
+  db.insert(identityLinks)
+    .values({
+      clerkUserId: "user_ada",
+      createdAt: START,
+      email: "ada@example.com",
+      externalUserId: "U0ADA",
+      id: "il-ada",
+      provider: "slack",
+      teamId: SLACK_TEAM,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  insertPost("post-md", TOPIC_MAIN, {
+    text: "**Hi** @ada, see [docs](https://x.io)",
+  });
+
+  await outbound().onEvent(postedEvent("post-md", TOPIC_MAIN));
+
+  expect(posts()[0]?.body?.text).toBe(
+    `*${PERSON_NAME}:* *Hi* <@U0ADA>, see <https://x.io|docs>`
+  );
+});
+
 test("with no lead, the oldest member app sends a person's post", async () => {
   db.update(teams)
     .set({ leadAgentId: null })
@@ -492,7 +519,10 @@ test("a post that should not go to Slack sends nothing and raises no failure", a
   insertPost("post-unlinked", TOPIC_UNLINKED);
   insertPost("post-limited", TOPIC_LIMITED);
   insertPost("post-blank", TOPIC_MAIN, { text: " \n\t " });
-  insertPost("post-guest", TOPIC_MAIN, { authorId: "slack:U0GUEST" });
+  insertPost("post-guest", TOPIC_MAIN, {
+    authorId: "slack:U0GUEST",
+    guestName: "Gina Guest",
+  });
   const sender = outbound();
 
   await sender.onEvent(postedEvent("post-unlinked", TOPIC_UNLINKED));
