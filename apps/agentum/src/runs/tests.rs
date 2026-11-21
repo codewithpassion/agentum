@@ -1365,7 +1365,8 @@ async fn relay_offer_reaches_role_executor_and_hello_advertises_cli_features() {
             "library-live",
             "current-approvals",
             "parallel-subagents",
-            "parked-questions"
+            "parked-questions",
+            "team-room"
         ])
     );
     server_task.abort();

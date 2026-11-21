@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
+import { inboxThreads } from "@repo/db/schema/inbox";
 import { machines } from "@repo/db/schema/machines";
 import {
   managedAgents,
@@ -12,6 +13,7 @@ import {
 } from "@repo/db/schema/managed";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { slackApps } from "@repo/db/schema/slack";
+import { teams } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
 import {
   APPROVAL_TTL_MS,
@@ -106,8 +108,13 @@ interface FakeSession {
   id: string;
   messages: string[];
   model: string;
+  overrides: SessionOverrides | undefined;
   vaultIds: readonly string[];
 }
+
+type SessionOverrides = NonNullable<
+  Parameters<ManagedGateway["createSession"]>[0]["overrides"]
+>;
 
 /**
  * The Managed Agents API as a script. `turns` is what the session does in
@@ -284,6 +291,7 @@ class FakeGateway implements ManagedGateway {
     anthropicAgentId: string;
     effort?: EffortLevel;
     model: string;
+    overrides?: SessionOverrides;
     text: string;
     vaultIds: readonly string[];
   }) {
@@ -294,6 +302,7 @@ class FakeGateway implements ManagedGateway {
       id: `sesn_${this.sessions.size + 1}`,
       messages: [input.text],
       model: input.model,
+      overrides: input.overrides,
       vaultIds: input.vaultIds,
     };
     this.sessions.set(session.id, session);
@@ -1133,6 +1142,72 @@ describe("sessions", () => {
 
     expect(kicked).toEqual([runId]);
     expect(kicks).toEqual([runId]);
+  });
+});
+
+describe("a lead's team-room run", () => {
+  /** The session the fake created for a run, found by the message that started it. */
+  const sessionOf = (runId: string, text: string) =>
+    [...gateway.sessions.values()].find(
+      (session) => session.messages[0] === told(text, runId)
+    );
+
+  const leadTeamRoom = (threadId: string) => {
+    db.insert(teams)
+      .values({
+        createdAt: START,
+        id: "ops",
+        leadAgentId: agentId,
+        name: "Ops",
+        slug: "ops",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    db.insert(inboxThreads)
+      .values({
+        createdAt: START,
+        createdBy: "user_dom",
+        id: threadId,
+        lastPostAt: START,
+        teamId: "ops",
+        title: "Ops room",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+  };
+
+  test("the room run's session is created as a team-room session, and the same agent's ui run's is not", async () => {
+    leadTeamRoom("room-1");
+    const room = await start(dom, "room", {
+      session: { externalKey: "room-1", origin: "inbox" },
+    });
+    await drive(room.runId);
+    const ui = await start(dom, "ui", { session: { origin: "ui" } });
+    await drive(ui.runId);
+
+    expect(sessionOf(room.runId, "room")?.overrides?.teamRoom).toBe(true);
+    expect(sessionOf(ui.runId, "ui")?.overrides?.teamRoom).not.toBe(true);
+  });
+
+  test("a room run does not reuse an idle session made without the room limits", async () => {
+    leadTeamRoom("room-1");
+    const first = await start(dom, "one", {
+      session: { externalKey: "room-1", origin: "inbox" },
+    });
+    await drive(first.runId);
+    // Make the session look like one created before the limits: it carries the plain agent fingerprint.
+    const registered = db.select().from(managedAgents).get();
+    db.update(managedSessions)
+      .set({ agentFingerprint: registered?.fingerprint ?? "" })
+      .run();
+    const second = await start(dom, "two", {
+      session: { externalKey: "room-1", origin: "inbox" },
+    });
+
+    await drive(second.runId);
+
+    expect(gateway.sessions.size).toBe(2);
+    expect(sessionOf(second.runId, "two")?.overrides?.teamRoom).toBe(true);
   });
 });
 

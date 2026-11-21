@@ -3,7 +3,7 @@ id: TM.20
 title: "A lead's room run gets no shell, file or web tools"
 milestone: TM
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/TM.20-a-lead-s-room-run-gets-no-shell-file-or
 lane: runtimes
@@ -29,3 +29,5 @@ From the TM gate review, round 1 (`docs/reviews/TM-1.md`, must-fix 2).
 - 2026-11-21: dispatched.
 - 2026-11-21: dispatcher stopped at the account monthly spend limit (HTTP 429). Work is saved in its worktree. Resume the same dispatcher after the limit resets on Nov 25.
 - 2026-11-21: spend limit reset, same dispatcher resumed.
+- 2026-11-21: ready at 1de295c1, review clean after 1 fix round. Dom: machines whose agent leads a team need the updated Agentum client, since room runs now go only to a daemon reporting the team-room feature.
+- 2026-11-21: merged 82f5487c, merge check passed (agentum-rs tests included). Done.

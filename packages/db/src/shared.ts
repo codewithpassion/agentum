@@ -838,6 +838,8 @@ export interface RailCard {
   kind: RailItemKind;
   mail: RailMail | null;
   passedOnBy: string | null;
+  /** Set on a lead's proposal to change an agent: the lead's name. The card's agent is the one the proposal changes. */
+  proposedBy?: string;
   runId: string | null;
   /** What happened, in plain words: "Reply ready". */
   status: string;

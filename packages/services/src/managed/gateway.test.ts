@@ -589,6 +589,139 @@ describe("createSession", () => {
   });
 });
 
+describe("team-room sessions", () => {
+  const ROOM_DISABLED = [
+    { enabled: false, name: "bash" },
+    { enabled: false, name: "edit" },
+    { enabled: false, name: "web_fetch" },
+    { enabled: false, name: "web_search" },
+    { enabled: false, name: "write" },
+  ];
+  const created: Record<string, unknown>[] = [];
+  const updates: Record<string, unknown>[] = [];
+  const gateway = createManagedGateway(
+    client({
+      agents: {
+        create: (body: Record<string, unknown>) => {
+          created.push(body);
+          return Promise.resolve({ id: "agt_1" });
+        },
+        update: (_id: string, body: Record<string, unknown>) => {
+          updates.push(body);
+          return Promise.resolve({ id: "agt_1" });
+        },
+      },
+      environments: {
+        list: () =>
+          iterate([{ archived_at: null, id: "env_1", name: "harbourmaster" }]),
+      },
+      sessions: {
+        create: (body: Record<string, unknown>) => {
+          created.push(body);
+          return Promise.resolve({ id: "sesn_1", status: "running" });
+        },
+      },
+    }),
+    { cache: memoryCache(), environmentName: "harbourmaster" }
+  );
+
+  const overrides = {
+    askKeys: [],
+    desktop: false,
+    mcpServers: MCP_SERVERS,
+    skills: [],
+    system: "be helpful",
+  };
+
+  const sessionTools = async (
+    extra: { askKeys?: readonly string[]; teamRoom?: boolean } = {}
+  ) => {
+    await gateway.createSession({
+      anthropicAgentId: "agt_1",
+      model: AGENT_MODEL,
+      overrides: { ...overrides, ...extra },
+      text: "hello",
+      title: "Ada in ch_1",
+      vaultIds: [],
+    });
+    const agent = created.at(-1)?.agent as { tools: Record<string, unknown>[] };
+    return agent.tools;
+  };
+
+  test("a team-room session disables the write, edit, bash, web fetch and search tools", async () => {
+    const [agentTools] = await sessionTools({ teamRoom: true });
+
+    expect(agentTools).toEqual({
+      configs: ROOM_DISABLED,
+      default_config: ALWAYS_ALLOW,
+      type: "agent_toolset_20260401",
+    });
+  });
+
+  test("a team-room session leaves the MCP toolsets and the ask tool as they are", async () => {
+    const tools = await sessionTools({ teamRoom: true });
+
+    expect(tools.slice(1)).toEqual([
+      {
+        default_config: ALWAYS_ALLOW,
+        mcp_server_name: "harbourmaster",
+        type: "mcp_toolset",
+      },
+      {
+        default_config: ALWAYS_ALLOW,
+        mcp_server_name: "connector_aaaa",
+        type: "mcp_toolset",
+      },
+      ASK_USER_CUSTOM_TOOL,
+    ]);
+  });
+
+  test("a disabled tool that is also asked appears once, as the disabled entry", async () => {
+    const [agentTools] = await sessionTools({
+      askKeys: ["bash", "read"],
+      teamRoom: true,
+    });
+
+    expect(agentTools).toEqual({
+      configs: [
+        ...ROOM_DISABLED,
+        { name: "read", permission_policy: { type: "always_ask" } },
+      ],
+      default_config: ALWAYS_ALLOW,
+      type: "agent_toolset_20260401",
+    });
+  });
+
+  test("without team room the session toolset has no disabled entry", async () => {
+    const [agentTools] = await sessionTools({ askKeys: ["bash"] });
+
+    expect(agentTools).toEqual({
+      configs: [{ name: "bash", permission_policy: { type: "always_ask" } }],
+      default_config: ALWAYS_ALLOW,
+      type: "agent_toolset_20260401",
+    });
+    expect(JSON.stringify(agentTools)).not.toContain('"enabled":false');
+  });
+
+  test("registerAgent and syncAgent never disable those tools", async () => {
+    const shared = {
+      askKeys: ["bash"],
+      instructions: "be helpful",
+      mcpServers: MCP_SERVERS,
+      model: AGENT_MODEL,
+      name: "Ada",
+      skills: [],
+      system: "be helpful",
+    };
+    await gateway.registerAgent(shared);
+    await gateway.syncAgent({ ...shared, anthropicAgentId: "agt_1" });
+
+    for (const body of [created.at(-1), updates.at(-1)]) {
+      expect(JSON.stringify(body?.tools)).not.toContain('"enabled":false');
+    }
+  });
+});
+
 describe("createVault", () => {
   test("sends only the display name", async () => {
     const created: Record<string, unknown>[] = [];

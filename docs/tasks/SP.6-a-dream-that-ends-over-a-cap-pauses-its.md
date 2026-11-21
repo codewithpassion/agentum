@@ -3,7 +3,7 @@ id: SP.6
 title: "A dream that ends over a cap pauses its agent"
 milestone: SP
 size: S
-status: in_progress
+status: done
 depends_on: [SP.5]
 branch: task/SP.6-a-dream-that-ends-over-a-cap-pauses-its
 lane: services-dream
@@ -27,3 +27,6 @@ a service test with the fake model. An agent at $0.99 of a $1.00 cap runs a drea
 - 2026-11-21: dispatched.
 - 2026-11-21: dispatcher stopped at the account monthly spend limit (HTTP 429). Work is saved in its worktree. Resume the same dispatcher after the limit resets on Nov 25.
 - 2026-11-21: spend limit reset, same dispatcher resumed.
+- 2026-11-21: dispatcher reported ready at 6a1fb04a without the browser walkthrough the Check asks for. Sent back to run it on local dev with seeded dream rows.
+- 2026-11-21: ready at ca37639a, review clean. Walkthrough ran a real dream on local dev: under the cap pauses nobody, crossing a 1 cent cap pauses for spend_cap with a Needs you item. Dev key removed from the local DB afterwards.
+- 2026-11-21: merged c529af47, merge check passed. Done. Stray screenshots in apps/web/docs removed at 6d6b8bd8.

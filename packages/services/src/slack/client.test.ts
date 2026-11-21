@@ -428,13 +428,20 @@ test("setStatus maps a ratelimited body to rate_limited", async () => {
 
 test("userEmail returns the profile email", async () => {
   const { calls, fetch } = fakeFetch(() =>
-    jsonResponse({ ok: true, user: { profile: { email: "a@example.com" } } })
+    jsonResponse({
+      ok: true,
+      user: { profile: { email: "a@example.com" }, team_id: "T1" },
+    })
   );
   const client = createSlackClient({ fetch, token: TOKEN });
 
   const result = await client.userEmail("U1");
 
-  expect(result).toEqual({ email: "a@example.com", kind: "ok" });
+  expect(result).toEqual({
+    email: "a@example.com",
+    kind: "ok",
+    teamId: "T1",
+  });
   const url = new URL(firstCall(calls).url);
   expect(url.origin + url.pathname).toBe("https://slack.com/api/users.info");
   expect(url.searchParams.get("user")).toBe("U1");
@@ -452,7 +459,7 @@ test("userEmail returns null when the user has no email", async () => {
 
   const result = await client.userEmail("U1");
 
-  expect(result).toEqual({ email: null, kind: "ok" });
+  expect(result).toEqual({ email: null, kind: "ok", teamId: null });
 });
 
 test("userName returns the display name and requests users.info", async () => {

@@ -123,6 +123,13 @@ const DECISION_TEXT: Record<ApprovalDecision, string> = {
   deny: "Denied",
 };
 
+/** What a lead's proposal calls each decision, matching the card's buttons. */
+const PROPOSAL_DECISION_TEXT: Record<ApprovalDecision, string> = {
+  allow_once: "Approved",
+  always_allow: "Approved",
+  deny: "Rejected",
+};
+
 const SURFACE_TEXT: Record<AnswerSurface, string> = {
   a2a: "an outside agent",
   slack: "Slack",
@@ -151,7 +158,8 @@ const cancelledLine = (
 export const settledLine = (
   kind: RequestView["kind"],
   settled: Settled,
-  by: string | null
+  by: string | null,
+  proposal = false
 ): string => {
   switch (settled.status) {
     case "expired":
@@ -174,7 +182,10 @@ export const settledLine = (
         }
         const note =
           answer.decision === "deny" && answer.note ? `: ${answer.note}` : "";
-        return `${DECISION_TEXT[answer.decision]}${who}${where}${note}`;
+        const text = proposal
+          ? PROPOSAL_DECISION_TEXT[answer.decision]
+          : DECISION_TEXT[answer.decision];
+        return `${text}${who}${where}${note}`;
       }
       return `${answeredVerb(kind)}${who}${where}`;
     }
@@ -266,6 +277,16 @@ export const teamProposalFields = (
   display: ApprovalDisplay
 ): ProposalInput | null =>
   display.toolName === TEAM_PROPOSE_TOOL ? proposalOf(display) : null;
+
+/** The heading above a pending request in a room: who needs the person. A lead's proposal names the lead, not the agent it changes. */
+export const requestHeading = (
+  view: RequestView,
+  agentName: string
+): string => {
+  const proposal =
+    view.kind === "approval" ? teamProposalFields(view.display) : null;
+  return `${proposal?.leadName ?? agentName} needs you`;
+};
 
 /** The words a proposal card uses for a field. */
 export const PROPOSAL_FIELD_LABELS: Record<ProposalField, string> = {

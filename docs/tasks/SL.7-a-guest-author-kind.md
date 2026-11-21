@@ -3,7 +3,7 @@ id: SL.7
 title: "A guest author kind"
 milestone: SL
 size: S
-status: todo
+status: in_progress
 depends_on: [SL.13]
 branch: null
 lane: slack
@@ -19,3 +19,4 @@ Scope. A contract task adds a `guest` author kind or a `guest_name` column on `i
 Check. Migration test on rows with the prefix. Room and search tests no longer parse text.
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.

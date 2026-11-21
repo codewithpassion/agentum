@@ -37,6 +37,11 @@ import {
  * `taskFolderOf` is read by the isolate's library tools only. The Linux VM gets
  * its task folder through `libraryOf`. Both environments' prompt sections add
  * `computerInstructions` when `computerOf` answers a computer.
+ *
+ * `teamRoom` gives a lead's run in its team room the isolate's read-only set
+ * even when `environment` is `linux-vm`: Pi's `read` from the library, and no
+ * `write`, `edit`, `bash`, `web_fetch` or `run_script`. The VM tools go out. Without
+ * `teamRoom`, or with it false, the environment works as described above.
  */
 export const installEnvironmentTools = (
   registry: Pick<Registry, "install" | "uninstall">,
@@ -46,28 +51,35 @@ export const installEnvironmentTools = (
   network?: NetworkToolsOptions,
   scripts?: RunScriptDeps,
   taskFolderOf?: () => Promise<string | undefined>,
-  computerOf?: () => Promise<{ desktop: boolean } | undefined>
+  computerOf?: () => Promise<{ desktop: boolean } | undefined>,
+  teamRoom?: boolean
 ): void => {
+  // A team room run never has the VM, and it gets no web_fetch or run_script.
+  const inRoom = teamRoom === true;
+  const isolate = inRoom || environment !== "linux-vm";
+  const webFetch = inRoom ? undefined : network;
+  const runScripts = inRoom ? undefined : scripts;
   // An extension that stays is installed over itself and keeps its place. Pi lists the tools in
   // install order, so taking it out first would move it to the end and make Pi re-declare every tool.
-  const isolate = environment !== "linux-vm";
-  if (!(isolate && network)) {
+  if (!(isolate && webFetch)) {
     registry.uninstall({ name: NETWORK_TOOLS_EXTENSION });
   }
-  if (!(isolate && scripts)) {
+  if (!(isolate && runScripts)) {
     registry.uninstall({ name: RUN_SCRIPT_EXTENSION });
   }
-  if (environment === "linux-vm") {
+  if (isolate) {
+    registry.uninstall({ name: LINUX_VM_TOOLS_EXTENSION });
+    registry.install(
+      libraryToolsExtension(slugOf, taskFolderOf, computerOf, inRoom)
+    );
+    if (webFetch) {
+      registry.install(networkToolsExtension(webFetch));
+    }
+    if (runScripts) {
+      registry.install(runScriptExtension(runScripts));
+    }
+  } else {
     registry.uninstall({ name: LIBRARY_TOOLS_EXTENSION });
     registry.install(linuxVmToolsExtension(libraryOf, computerOf));
-  } else {
-    registry.uninstall({ name: LINUX_VM_TOOLS_EXTENSION });
-    registry.install(libraryToolsExtension(slugOf, taskFolderOf, computerOf));
-    if (network) {
-      registry.install(networkToolsExtension(network));
-    }
-    if (scripts) {
-      registry.install(runScriptExtension(scripts));
-    }
   }
 };

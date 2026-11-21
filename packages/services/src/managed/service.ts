@@ -259,6 +259,17 @@ const computerFingerprint = (computer: AgentComputer | null) =>
 const effortOfRun = (agent: AgentRecord, run: RunRecord) =>
   effortOf(runtimeConfigForRun(agent.runtimeConfig, run.subagentLevel));
 
+/**
+ * The fingerprint a session is created and reused under. A session made before the room limits
+ * existed, or by a run outside the room, has every tool, so a room run never reuses it. The
+ * registered agent keeps the plain fingerprint.
+ */
+const sessionFingerprintOf = (
+  fingerprint: string,
+  teamRoom: boolean
+): Promise<string> | string =>
+  teamRoom ? hashToken(`${fingerprint}:team-room`) : fingerprint;
+
 /** The thinking level's part of the fingerprint: none when there is none, so an agent without one keeps its fingerprint. */
 const effortFingerprint = (effort: EffortLevel | undefined) =>
   effort === undefined ? {} : { effort };
@@ -790,7 +801,10 @@ export const createManagedService = ({
         anthropicAgentId,
         effort,
         model,
-        overrides: run.subagentLevel > 0 ? overrides : undefined,
+        overrides:
+          run.subagentLevel > 0 || overrides?.teamRoom === true
+            ? overrides
+            : undefined,
         text,
         title: agent.name,
         vaultIds: [vaultId],
@@ -1021,6 +1035,11 @@ export const createManagedService = ({
       })
     );
 
+    const sessionFingerprint = await sessionFingerprintOf(
+      fingerprint,
+      context.teamRoom
+    );
+
     await skillsSync.removeStale(gateway, stale);
     const [session] = await db
       .select()
@@ -1030,7 +1049,7 @@ export const createManagedService = ({
     const text = messageOf(run, agent);
     const idle =
       session?.anthropicSessionId &&
-      isReusable(session, fingerprint) &&
+      isReusable(session, sessionFingerprint) &&
       (await gateway.getSession(session.anthropicSessionId)) === "idle";
     if (session?.anthropicSessionId && idle && (await takeOver(session, run))) {
       await skipUnreadEvents(gateway, session, session.anthropicSessionId);
@@ -1057,7 +1076,7 @@ export const createManagedService = ({
         anthropicAgentId,
         effort,
         env: grants.env,
-        fingerprint,
+        fingerprint: sessionFingerprint,
         gateway,
         libraryHost: libraryHostOf(publicBaseUrl),
         model,
@@ -1067,6 +1086,7 @@ export const createManagedService = ({
           mcpServers: servers,
           skills: refs,
           system,
+          teamRoom: context.teamRoom,
         },
         relayHost: grants.relayHost,
         run,

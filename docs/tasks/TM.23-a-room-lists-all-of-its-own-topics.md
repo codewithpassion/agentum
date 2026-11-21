@@ -3,7 +3,7 @@ id: TM.23
 title: "A room lists all of its own topics"
 milestone: TM
 size: S
-status: todo
+status: in_progress
 depends_on: [TM.21]
 branch: null
 lane: services-inbox
@@ -26,3 +26,4 @@ From the TM gate review, round 1 (`docs/reviews/TM-1.md`, must-fix 5).
 - `bun run check && bun run test && bun run build` pass.
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.

@@ -43,6 +43,8 @@ export interface LaunchContext {
   scope: RunAccessScope | null;
   /** The Slack paragraph for the agent's instructions, empty when none. */
   slack: string;
+  /** The run is a lead's run in its team room: every runtime leaves it no shell, file-writing or web tool. */
+  teamRoom: boolean;
 }
 
 /** The live teams with a library folder that the run's agent is a member of, home team first, then by name. */
@@ -165,5 +167,6 @@ export const buildLaunchContext = async (
       agentId: run.agentId,
       workspaceId: run.workspaceId,
     }),
+    teamRoom: inLeadRoom,
   };
 };

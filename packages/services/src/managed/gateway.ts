@@ -126,6 +126,8 @@ export interface ManagedGateway {
       mcpServers: readonly McpServerRef[];
       skills: readonly SkillRef[];
       system: string;
+      /** A lead's run in its team room: the session loses the write, edit, bash and web tools. */
+      teamRoom?: boolean;
     };
     text: string;
     title: string;
@@ -235,15 +237,51 @@ const mcpToolset = (
   type: "mcp_toolset" as const,
 });
 
-const agentToolset = (askNames: readonly AgentToolName[], force = false) => ({
-  default_config: force
-    ? { enabled: true, permission_policy: { type: "always_ask" as const } }
-    : permissive,
-  ...configsFor(askNames),
-  type: AGENT_TOOLSET as "agent_toolset_20260401",
-});
-
 type AgentToolName = (typeof AGENT_TOOL_NAMES)[number];
+
+/**
+ * The built-in tools a lead's team-room session loses: no shell, no file
+ * writing, no web. Read, glob and grep stay.
+ */
+const ROOM_DISABLED_AGENT_TOOLS = [
+  "bash",
+  "edit",
+  "web_fetch",
+  "web_search",
+  "write",
+] as const satisfies readonly AgentToolName[];
+
+/**
+ * The agent toolset's configs: `enabled: false` for each disabled tool, then
+ * `always_ask` for each asked tool that is not disabled. Disabled wins.
+ */
+const agentConfigsFor = (
+  askNames: readonly AgentToolName[],
+  disabledNames: readonly AgentToolName[]
+) => [
+  ...disabledNames.map((name) => ({ enabled: false as const, name })),
+  ...askNames
+    .filter((name) => !disabledNames.includes(name))
+    .map((name) => ({
+      name,
+      permission_policy: { type: "always_ask" as const },
+    })),
+];
+
+const agentToolset = (
+  askNames: readonly AgentToolName[],
+  force = false,
+  disabledNames: readonly AgentToolName[] = []
+) => {
+  const configs = agentConfigsFor(askNames, disabledNames);
+  return {
+    default_config: force
+      ? { enabled: true, permission_policy: { type: "always_ask" as const } }
+      : permissive,
+    ...(configs.length > 0 ? { configs } : {}),
+    type: AGENT_TOOLSET as "agent_toolset_20260401",
+  };
+};
 
 const isAgentToolName = (key: string): key is AgentToolName =>
   AGENT_TOOL_NAMES.some((name) => name === key);
@@ -308,11 +346,16 @@ const customTool = ({
 const toolsFor = (
   mcpServers: readonly McpServerRef[],
   askKeys: readonly string[],
-  desktop: boolean
+  desktop: boolean,
+  teamRoom = false
 ) => {
   const asks = askNamesFor(mcpServers, askKeys);
   return [
-    agentToolset(asks.agent, askKeys.includes("*")),
+    agentToolset(
+      asks.agent,
+      askKeys.includes("*"),
+      teamRoom ? ROOM_DISABLED_AGENT_TOOLS : []
+    ),
     ...mcpServers.map((server) =>
       mcpToolset(
         server.name,
@@ -659,7 +702,8 @@ export const createManagedGateway = (
                 tools: toolsFor(
                   input.overrides.mcpServers,
                   input.overrides.askKeys,
-                  input.overrides.desktop
+                  input.overrides.desktop,
+                  input.overrides.teamRoom === true
                 ),
               }
             : {}),

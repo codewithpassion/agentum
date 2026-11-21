@@ -522,6 +522,18 @@ describe("parked questions feature", () => {
     ).toBe(false);
   });
 
+  test("claim-response accepts teamRoom true and refuses false", async () => {
+    const parsed = claimResponseSchema.parse(
+      await loadFixture("claim-response")
+    );
+    expect(
+      claimResponseSchema.parse({ ...parsed, teamRoom: true }).teamRoom
+    ).toBe(true);
+    expect(
+      claimResponseSchema.safeParse({ ...parsed, teamRoom: false }).success
+    ).toBe(false);
+  });
+
   test("complete-request accepts awaitingAnswer on done and refuses it on failed", async () => {
     const done = (await loadFixture("complete-request-done")) as Record<
       string,
