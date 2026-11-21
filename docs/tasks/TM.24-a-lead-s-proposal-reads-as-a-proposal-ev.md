@@ -3,7 +3,7 @@ id: TM.24
 title: "A lead's proposal reads as a proposal everywhere it shows"
 milestone: TM
 size: S
-status: ready
+status: done
 depends_on: [TM.12]
 branch: task/TM.24-a-lead-s-proposal-reads-as-a-proposal-ev
 lane: web-room
@@ -28,3 +28,4 @@ From the TM.12 review (`docs/reviews/tasks/TM.12.md`, items left outside the car
 - 2026-11-21: added by controller from the TM.12 review.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at 70bc5b0a, review clean, one reviewer nit fixed in a one-line commit, browser proof passed.
+- 2026-11-21: merged da902e93, merge check passed. Done.
