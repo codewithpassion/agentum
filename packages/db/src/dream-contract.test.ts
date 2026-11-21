@@ -144,6 +144,12 @@ test("the dream run statuses, model and Needs you kind are the documented values
   expect(heading).toContain("Scout");
 });
 
+test("a team's dream question heading names the team", () => {
+  expect(NEEDS_YOU_HEADINGS.dream_question("Ada", "Crew")).toBe(
+    "Crew has a question from its team dream"
+  );
+});
+
 test("two live dream triggers for one agent are refused", () => {
   const db = migrated();
   seedWorkspace(db);

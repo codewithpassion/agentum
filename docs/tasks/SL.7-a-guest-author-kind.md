@@ -3,9 +3,9 @@ id: SL.7
 title: "A guest author kind"
 milestone: SL
 size: S
-status: in_progress
+status: ready
 depends_on: [SL.13]
-branch: null
+branch: task/SL.7-a-guest-author-kind
 lane: slack
 executor: claude
 ---
@@ -20,3 +20,4 @@ Check. Migration test on rows with the prefix. Room and search tests no longer p
 ## Log
 - 2026-11-21: added by controller.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 6d590c1e, review clean after 1 fix round. guest_name column, migration 0061. Browser proof skipped under the new rule.

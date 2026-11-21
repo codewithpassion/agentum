@@ -492,7 +492,10 @@ test("a post that should not go to Slack sends nothing and raises no failure", a
   insertPost("post-unlinked", TOPIC_UNLINKED);
   insertPost("post-limited", TOPIC_LIMITED);
   insertPost("post-blank", TOPIC_MAIN, { text: " \n\t " });
-  insertPost("post-guest", TOPIC_MAIN, { authorId: "slack:U0GUEST" });
+  insertPost("post-guest", TOPIC_MAIN, {
+    authorId: "slack:U0GUEST",
+    guestName: "Gina Guest",
+  });
   const sender = outbound();
 
   await sender.onEvent(postedEvent("post-unlinked", TOPIC_UNLINKED));

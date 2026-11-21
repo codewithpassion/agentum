@@ -549,17 +549,22 @@ export const createDeskService = ({
    * team's lead when it is active, else its active agent member with the
    * lowest id. Only the team's owner and an org admin get its card, so a team
    * they cannot see has no entry, and a team with no active agent has none either.
+   * `names` holds the name of each team in `agents`.
    */
   const teamQuestionAgents = async (
     member: UserPrincipal,
     questions: readonly { teamId: string | null }[]
-  ): Promise<Map<string, string>> => {
+  ): Promise<{ agents: Map<string, string>; names: Map<string, string> }> => {
     const teamIds = questions.flatMap(({ teamId }) =>
       teamId === null ? [] : [teamId]
     );
     const ownedTeams = await inBatches(teamIds, (batch) =>
       db
-        .select({ id: teams.id, leadAgentId: teams.leadAgentId })
+        .select({
+          id: teams.id,
+          leadAgentId: teams.leadAgentId,
+          name: teams.name,
+        })
         .from(teams)
         .where(
           and(
@@ -619,7 +624,10 @@ export const createDeskService = ({
         chosen.set(teamId, memberId);
       }
     }
-    return chosen;
+    return {
+      agents: chosen,
+      names: new Map(ownedTeams.map((team) => [team.id, team.name])),
+    };
   };
 
   /** Everything in Needs you, before it becomes cards. */
@@ -826,7 +834,7 @@ export const createDeskService = ({
         ? [{ post, thread }]
         : [];
     });
-    const teamAgents = await teamQuestionAgents(member, dreamRows);
+    const teamAsks = await teamQuestionAgents(member, dreamRows);
     return {
       a2aConnections: a2aList.connections.filter(
         (connection) => !drafts.has(connection.agentId)
@@ -878,7 +886,9 @@ export const createDeskService = ({
         // A team's question is asked through the team's agent; see `teamQuestionAgents`.
         const agentId =
           row.agentId ??
-          (row.teamId === null ? null : (teamAgents.get(row.teamId) ?? null));
+          (row.teamId === null
+            ? null
+            : (teamAsks.agents.get(row.teamId) ?? null));
         if (agentId === null || drafts.has(agentId)) {
           return [];
         }
@@ -902,6 +912,7 @@ export const createDeskService = ({
             id: row.id,
             options,
             question: row.question,
+            teamName: teamAsks.names.get(row.teamId ?? "") ?? null,
             userScope,
           },
         ];
@@ -1087,6 +1098,9 @@ export const createDeskService = ({
             options: question.options,
             question: question.question,
             questionId: question.id,
+            ...(question.teamName === null
+              ? {}
+              : { teamName: question.teamName }),
           },
           ...(question.userScope ? { forUserId: question.userScope } : {}),
           id: question.id,

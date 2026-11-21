@@ -45,6 +45,7 @@ const basePost: InboxPost = {
   authorKind: "agent",
   createdAt: "2026-11-19T10:00:00.000Z",
   fileIds: [],
+  guestName: null,
   id: "post_1",
   runId: null,
   text: "Invoice matched.",
@@ -161,7 +162,8 @@ test("a Slack guest's post shows the guest's name, a Slack guest tag and the mes
       ...basePost,
       authorId: "slack:T0TEAM:U0GUEST",
       authorKind: "user",
-      text: "Priya (Slack guest): can we move the call?",
+      guestName: "Priya",
+      text: "can we move the call?",
     },
   });
   expect(html).toContain('<span class="font-medium text-sm">Priya</span>');

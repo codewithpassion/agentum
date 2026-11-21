@@ -6,7 +6,6 @@ import { FileChips } from "#/components/thread/file-chips.tsx";
 import { buttonVariants } from "#/components/ui/button.tsx";
 import type { FileInfo, InboxPost } from "#/integrations/trpc/types.ts";
 import { MemberAvatar } from "./member-avatar.tsx";
-import { guestOfPost } from "./room-logic.ts";
 import { memberKey, type RoomMember } from "./room-types.ts";
 
 const PILL_CLASS = `${buttonVariants({ size: "sm", variant: "outline" })} max-md:min-h-10`;
@@ -40,15 +39,14 @@ export function RoomPost({
 }) {
   const hasLinks =
     post.runId !== null || post.artifacts.length > 0 || post.fileIds.length > 0;
-  const guest = guestOfPost(post);
   return (
     <li className="flex flex-col gap-2" id={`post-${post.id}`}>
       <div className="flex items-center gap-2">
         <MemberAvatar member={author} />
         <span className="font-medium text-sm">{authorLabel}</span>
-        {guest ? (
+        {post.guestName === null ? null : (
           <span className="text-muted-foreground text-xs">Slack guest</span>
-        ) : null}
+        )}
         <time
           className="text-muted-foreground text-xs"
           dateTime={post.createdAt}
@@ -62,7 +60,7 @@ export function RoomPost({
         </div>
       ) : (
         <p className="whitespace-pre-wrap text-foreground text-sm">
-          {guest ? guest.text : post.text}
+          {post.text}
         </p>
       )}
       {assigned.length > 0 ? <AssignedLine assigned={assigned} /> : null}

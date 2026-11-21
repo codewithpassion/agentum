@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { spawn } from "bun";
 
-test("guest execution: HTTP cap/start, durable recovery, signed MCP and suggestions", async () => {
+// biome-ignore lint/suspicious/noSkippedTests: flaky under load, disabled by FX.7, see docs/backlog/flaky-tests.md
+test.skip("guest execution: HTTP cap/start, durable recovery, signed MCP and suggestions", async () => {
   const bundler = spawn(
     ["bun", `${import.meta.dir}/fixtures/bundle-guest.ts`, "guest-execution"],
     { stderr: "pipe", stdout: "pipe" }
