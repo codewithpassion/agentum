@@ -3,7 +3,12 @@ import { type FormEvent, useCallback, useRef, useState } from "react";
 import { SectionLabel } from "./df-parts";
 
 const SUBSCRIBE_PATH = "/api/newsletter/subscribe";
-const SITE_KEY: string = import.meta.env.VITE_TURNSTILE_SITE_KEY ?? "";
+// Public keys. Production builds use the real widget (agentumbot.io and
+// agentum.rockyshoreslabs.io); dev uses Cloudflare's always-pass test key, which
+// the route accepts only on localhost.
+const PRODUCTION_SITE_KEY = "0x4AAAAAAGNxncr7sBoBDII8";
+const TEST_SITE_KEY = "1x00000000000000000000AA";
+const SITE_KEY = import.meta.env.PROD ? PRODUCTION_SITE_KEY : TEST_SITE_KEY;
 const GENERIC_ERROR = "Something went wrong, please try again.";
 
 type Status = "error" | "idle" | "sent" | "sending";
@@ -118,16 +123,14 @@ export function NewsletterSignup() {
                     tabIndex={-1}
                     type="text"
                   />
-                  {SITE_KEY ? (
-                    <Turnstile
-                      onError={clearToken}
-                      onExpire={clearToken}
-                      onSuccess={setToken}
-                      options={{ size: "invisible" }}
-                      ref={turnstile}
-                      siteKey={SITE_KEY}
-                    />
-                  ) : null}
+                  <Turnstile
+                    onError={clearToken}
+                    onExpire={clearToken}
+                    onSuccess={setToken}
+                    options={{ size: "invisible" }}
+                    ref={turnstile}
+                    siteKey={SITE_KEY}
+                  />
                   <button
                     className="df-cta df-cta-orange"
                     disabled={sending || token === ""}
