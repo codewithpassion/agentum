@@ -5,6 +5,8 @@ import {
   applyFrame,
   foldThread,
   type ThreadEvent,
+  type ThreadFrame,
+  type ThreadMessage,
 } from "@repo/protocol/thread";
 
 const at = "2026-10-26T00:00:00Z";
@@ -617,4 +619,104 @@ test("legacy stored messages have no invented author", () => {
   expect(
     foldThread([event("legacy", "message.user", { text: "Hi" })])[0]?.actor
   ).toBeUndefined();
+});
+
+test("a steered message lands after the run's assistant message", () => {
+  const messages = foldThread([
+    event("1", "message.user", { text: "Start" }),
+    event("2", "message.assistant", { text: "Working" }),
+    event("3", "message.user", { steered: true, text: "Also check B" }),
+  ]);
+  expect(messages.map((message) => message.role)).toEqual([
+    "user",
+    "assistant",
+    "user",
+  ]);
+  expect(messages[2]).toMatchObject({ id: "3", steered: true });
+  expect(messages[2]?.parts).toEqual([{ text: "Also check B", type: "text" }]);
+  expect(messages[0]).not.toHaveProperty("steered");
+  expect(messages[1]).not.toHaveProperty("steered");
+});
+
+test("later assistant deltas and events update the message before a steered one", () => {
+  let messages = applyFrame([], {
+    frame: "delta",
+    messageKey: "a",
+    runId: "r1",
+    text: "Hi",
+  });
+  messages = applyFrame(
+    messages,
+    frame(event("1", "message.user", { steered: true, text: "Also B" }))
+  );
+  messages = applyFrame(messages, {
+    frame: "delta",
+    messageKey: "a",
+    runId: "r1",
+    text: "Hi there",
+  });
+  messages = applyFrame(messages, frame(event("2", "run.finished")));
+  expect(messages.map((message) => message.role)).toEqual([
+    "assistant",
+    "user",
+  ]);
+  expect(messages[0]).toMatchObject({
+    id: "assistant:r1",
+    parts: [{ text: "Hi there", type: "text" }],
+    status: "done",
+  });
+  expect(messages[1]).toMatchObject({ id: "1", steered: true });
+});
+
+test("a normal message still goes before its run's assistant message", () => {
+  const messages = foldThread([
+    event("1", "message.assistant", { text: "Hello" }),
+    event("2", "message.user", { text: "Hi" }),
+  ]);
+  expect(messages.map((message) => message.id)).toEqual(["2", "assistant:r1"]);
+  expect(messages[0]).not.toHaveProperty("steered");
+});
+
+test("steered messages keep their arrival order after the assistant message", () => {
+  const messages = foldThread([
+    event("1", "message.user", { text: "Start" }),
+    event("2", "message.assistant", { text: "Working" }),
+    event("3", "message.user", { steered: true, text: "First" }),
+    event("4", "message.user", { steered: true, text: "Second" }),
+    event("5", "message.assistant", { text: "Done" }),
+  ]);
+  expect(messages.map((message) => message.id)).toEqual([
+    "1",
+    "assistant:r1",
+    "3",
+    "4",
+  ]);
+  expect(messages[1]?.parts).toEqual([
+    { text: "Working", type: "text" },
+    { text: "Done", type: "text" },
+  ]);
+});
+
+test("steered messages fold the same live as on replay", () => {
+  const user = { id: "u1", kind: "user" as const };
+  const events: ThreadEvent[] = [
+    { ...event("1", "message.user", { text: "Start" }), actor: user },
+    event("2", "message.assistant", { text: "Working" }),
+    {
+      ...event("3", "message.user", { steered: true, text: "Also B" }),
+      actor: user,
+    },
+    event("4", "message.assistant", { text: "Done" }),
+    event("5", "run.finished"),
+  ];
+  let live: ThreadMessage[] = [];
+  for (const entry of events) {
+    const streamed: ThreadFrame = {
+      ...frame(entry),
+      actor: entry.actor ?? { id: "agent", kind: "agent" },
+    };
+    live = applyFrame(live, streamed);
+  }
+  expect(live).toEqual(foldThread(events));
+  expect(live.map((message) => message.id)).toEqual(["1", "assistant:r1", "3"]);
 });

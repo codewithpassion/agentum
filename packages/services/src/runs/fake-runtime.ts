@@ -239,6 +239,7 @@ export const createFakeRuntime = ({
     await finishWithText(deps, run, result.text, result.events);
   },
   kind: "fake",
+  offerNextOnEnd: true,
   resume: async (run, request, deps) => {
     if (request.kind !== "approval" || request.toolUseId !== toolUseIdOf(run)) {
       return;

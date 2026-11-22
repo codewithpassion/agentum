@@ -199,20 +199,24 @@ export function TaskPage({
     []
   );
 
-  const stop = useCallback(async () => {
-    setStopping(true);
-    try {
-      await getTrpc().runs.cancel.mutate({ runId });
-      await refetch();
-    } catch (cause) {
-      // A run that ended meanwhile is what the person wanted.
-      if (!isConflict(cause)) {
-        setError(messageOf(cause));
+  const stopRun = useCallback(
+    async (target: string) => {
+      setStopping(true);
+      try {
+        await getTrpc().runs.cancel.mutate({ runId: target });
+        await refetch();
+      } catch (cause) {
+        // A run that ended meanwhile is what the person wanted.
+        if (!isConflict(cause)) {
+          setError(messageOf(cause));
+        }
+      } finally {
+        setStopping(false);
       }
-    } finally {
-      setStopping(false);
-    }
-  }, [refetch, runId]);
+    },
+    [refetch]
+  );
+  const stop = useCallback(() => stopRun(runId), [stopRun, runId]);
 
   const events = useMemo(() => runEvents(live), [live]);
   const { error: mailError, thread: mailThread } = useTaskMail(
@@ -392,6 +396,7 @@ export function TaskPage({
               }
               stop={stop}
               stopping={stopping}
+              stopRun={stopRun}
               task={{ ...task, events: live.events }}
             />
           </div>

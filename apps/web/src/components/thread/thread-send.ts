@@ -2,6 +2,7 @@
 // sends into a `runs.start` input, and decide what the thread lets a person do.
 
 import type { AppendMessage } from "@assistant-ui/react";
+import type { AgentRuntime } from "@repo/db/shared";
 import type { ThreadMessage, ThreadStatus } from "@repo/protocol/thread";
 
 /** The text of a composer message: its text parts, joined and trimmed. */
@@ -81,11 +82,31 @@ export const replyNote = (origin: string, subThread = false): string | null => {
   return REPLY_NOTES[origin] ?? "This conversation is read only here.";
 };
 
-/** The id of the last user message, or null when the thread has none. */
+/** The body the browser sends to `runs.sendWhileWorking`: a message for a task that is working. */
+export const sendWhileWorkingBody = (input: {
+  fileIds: string[];
+  requestId: string;
+  runId: string;
+  text: string;
+}) => ({
+  input: { fileIds: input.fileIds, text: input.text },
+  requestId: input.requestId,
+  runId: input.runId,
+});
+
+/** What the box says while a task works: the Cloud runtime reads a message at once, every other one gets it when the step ends. */
+export const busyNote = (runtime: AgentRuntime): string =>
+  runtime === "cloud"
+    ? "The agent reads this as it works."
+    : "The agent gets this when the current step ends.";
+
+/** The id of the last user message a person can edit, or null. A message sent into a working task is not the start of one. */
 export const latestUserMessage = (
-  messages: readonly Pick<ThreadMessage, "id" | "role">[]
+  messages: readonly Pick<ThreadMessage, "id" | "role" | "steered">[]
 ): string | null =>
-  messages.findLast((message) => message.role === "user")?.id ?? null;
+  messages.findLast(
+    (message) => message.role === "user" && message.steered !== true
+  )?.id ?? null;
 
 /** Whether a thread status means the agent is still working or waiting on a person. */
 export const isActiveStatus = (status: ThreadStatus): boolean =>

@@ -15,6 +15,7 @@ export function BottomBar({
   atBottom,
   runNumber,
   origin,
+  replyBelow = false,
   routingHref,
   workingLabel,
 }: {
@@ -30,6 +31,8 @@ export function BottomBar({
   atBottom: boolean;
   runNumber: number;
   origin: string;
+  /** The reply box sits under the strip, so it does not tell the person to wait. */
+  replyBelow?: boolean;
   routingHref?: string;
   workingLabel?: string;
 }) {
@@ -74,7 +77,11 @@ export function BottomBar({
             ? `Working · ${workingLabel}`
             : `Task ${runNumber} is working.`}
         </p>
-        <p className="text-muted-foreground text-xs">Reply when it is done.</p>
+        {replyBelow ? null : (
+          <p className="text-muted-foreground text-xs">
+            Reply when it is done.
+          </p>
+        )}
       </div>
       {atBottom ? null : (
         <Button onClick={onLatest} variant="ghost">

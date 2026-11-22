@@ -617,6 +617,28 @@ export const createRunCore = ({
     follow(runId);
   };
 
+  /**
+   * Hands a message to the work in progress on an active run (Pi's steer).
+   * False when the run is not active here or Pi is idle: a steer into an idle
+   * session would start a turn no run follows. The run is already followed,
+   * so this does not follow it again.
+   */
+  const steer = async (
+    runId: string,
+    message: { operationId: string; text: string }
+  ): Promise<boolean> => {
+    const run = await load(runId);
+    if (run?.state !== "active" || !(await pi.busy())) {
+      return false;
+    }
+    // `accepted: false` means Pi already holds this operation: the message is in.
+    await pi.submit(
+      await inputOf(refOf(runId, run), message.text, [], run.model),
+      { operationId: message.operationId, whenBusy: "steer" }
+    );
+    return true;
+  };
+
   /** Submits an active run again and works it. A no-op submit when Pi has the run covers a start that stopped before its submit. */
   const resumeRun = async (runId: string, run: StoredRun): Promise<void> => {
     if (!(await pi.busy())) {
@@ -702,7 +724,7 @@ export const createRunCore = ({
     return active.length > 0;
   };
 
-  return { beat, cancel, resume, start };
+  return { beat, cancel, resume, start, steer };
 };
 
 export type RunCore = ReturnType<typeof createRunCore>;

@@ -27,14 +27,17 @@ import {
 import { BottomBar } from "./bottom-bar.tsx";
 import { ComposerContainer } from "./composer-container.tsx";
 import { addEditedMark, readEditedMarks } from "./edited-marks.ts";
+import { threadActivity, waitingMessages } from "./thread-activity.ts";
 import { ThreadContainer, type ThreadPosition } from "./thread-container.tsx";
 import { type ThreadEnv, ThreadEnvProvider } from "./thread-context.tsx";
 import { threadRequestViews } from "./thread-request-views.ts";
 import {
+  busyNote,
   isActiveStatus,
   latestUserMessage,
   replyBody,
   replyNote,
+  sendWhileWorkingBody,
   startRunBody,
 } from "./thread-send.ts";
 import { useFileInfos } from "./use-file-infos.ts";
@@ -43,8 +46,6 @@ import {
   type ThreadSendInput,
   useTaskThreadRuntime,
 } from "./use-task-thread-runtime.ts";
-
-const noop = () => undefined;
 
 const messageOf = (cause: unknown): string => errorMessage(cause);
 
@@ -68,7 +69,7 @@ const fileIdsOf = (messages: readonly ThreadMessage[]): string[] => [
  */
 export function TaskThread({
   answer,
-  messages,
+  messages: allMessages,
   nowMs,
   requests,
   task,
@@ -81,6 +82,7 @@ export function TaskThread({
   routingHref: externalRoutingHref,
   filesText = "",
   stop,
+  stopRun,
   stopping = false,
   activeStatus,
 }: {
@@ -94,6 +96,8 @@ export function TaskThread({
   routingHref?: string;
   filesText?: string;
   stop?: () => void;
+  /** Stops a run of the session that is not the one on show, the one a message was sent into. */
+  stopRun?: (runId: string) => void;
   stopping?: boolean;
   activeStatus?: TaskView["run"]["status"];
   answer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
@@ -109,6 +113,21 @@ export function TaskThread({
   const [edited, setEdited] = useState<ReadonlySet<string>>(() => new Set());
   // Read after mount: the server render has no session storage.
   useEffect(() => setEdited(readEditedMarks()), []);
+
+  const activity = useMemo(() => threadActivity(task.events), [task.events]);
+  // A message removed before its run started leaves the conversation.
+  const messages = useMemo(
+    () =>
+      allMessages.filter(
+        (message) =>
+          message.runId === null || !activity.removed.has(message.runId)
+      ),
+    [allMessages, activity.removed]
+  );
+  const waiting = useMemo(
+    () => waitingMessages(messages, activity),
+    [messages, activity]
+  );
 
   const runs = useMemo(
     () =>
@@ -168,11 +187,14 @@ export function TaskThread({
   const latestMessage = messages.findLast(
     (message) => message.role === "assistant" && message.runId === latestRun?.id
   );
-  const running = latestMessage
+  const shownRunning = latestMessage
     ? isActiveStatus(latestMessage.status)
     : ["queued", "offered", "running", "waiting"].includes(
         latestRun?.status ?? ""
       );
+  // The page's run list is from when it loaded: the events say what works now.
+  const running =
+    shownRunning || activity.working !== null || activity.queued.length > 0;
   const conversationRequests = useMemo(
     () => threadRequestViews(task.events, requests),
     [task.events, requests]
@@ -256,13 +278,31 @@ export function TaskThread({
       : undefined;
   const review = useCallback(() => focusRequest(pending?.id), [pending?.id]);
 
+  const workingRunId = activity.working ?? runs.at(-1)?.id ?? task.run.id;
   const startRun = useCallback(
-    async ({ fileIds: ids, text }: ThreadSendInput, onStarted?: () => void) => {
+    async (
+      { fileIds: ids, text }: ThreadSendInput,
+      onStarted?: () => void,
+      asNewTask = false
+    ) => {
       // One send at a time, so a second Ctrl+Enter cannot start a second run.
       if (starting.current !== null) {
         throw new Error("The last message is still being sent.");
       }
       const begin = async () => {
+        if (running && !asNewTask) {
+          // The task keeps its page: the stream brings the message in, as Dom's or as a waiting one.
+          await getTrpc().runs.sendWhileWorking.mutate(
+            sendWhileWorkingBody({
+              fileIds: ids,
+              requestId: crypto.randomUUID(),
+              runId: workingRunId,
+              text,
+            })
+          );
+          onStarted?.();
+          return;
+        }
         await (subThread
           ? getTrpc().runs.reply.mutate(
               replyBody({
@@ -302,7 +342,16 @@ export function TaskThread({
         starting.current = null;
       }
     },
-    [navigate, onSent, router, subThread, task.agent.id, task.session]
+    [
+      navigate,
+      onSent,
+      router,
+      running,
+      subThread,
+      task.agent.id,
+      task.session,
+      workingRunId,
+    ]
   );
 
   const edit = useCallback(
@@ -323,7 +372,11 @@ export function TaskThread({
         }
       }
       // The mark waits for the new run, so a failed start does not claim an edit.
-      await startRun({ fileIds: ids, text }, () => addEditedMark(messageId));
+      await startRun(
+        { fileIds: ids, text },
+        () => addEditedMark(messageId),
+        true
+      );
     },
     [messages, startRun]
   );
@@ -331,6 +384,20 @@ export function TaskThread({
   const onError = useCallback(
     (cause: unknown) => toast.error(messageOf(cause)),
     []
+  );
+
+  const removeWaiting = useCallback(
+    async (runId: string) => {
+      try {
+        await getTrpc().runs.cancel.mutate({ runId });
+      } catch (cause) {
+        // A run that started meanwhile is no longer waiting, and is stopped with Stop.
+        if (!isConflict(cause)) {
+          onError(cause);
+        }
+      }
+    },
+    [onError]
   );
 
   const runtime = useTaskThreadRuntime({
@@ -391,10 +458,12 @@ export function TaskThread({
       onComputer,
       outsideLabels,
       remember: { agentId: task.agent.id, sessionId: task.session.id },
+      removeWaiting,
       requests: conversationRequests,
       requestTimes,
       runMarkers,
       viewedMessageIds,
+      waiting,
     }),
     [
       answer,
@@ -422,6 +491,8 @@ export function TaskThread({
       task.session.id,
       runMarkers,
       viewedMessageIds,
+      waiting,
+      removeWaiting,
     ]
   );
 
@@ -430,25 +501,35 @@ export function TaskThread({
     trigger: "/triggers",
   };
   const routingHref = externalRoutingHref ?? routingHrefs[task.startedBy.kind];
+  // The reply box stays open while a task works, in a conversation that takes replies here.
+  const composerOpen =
+    state === "composer" || (state === "working" && note === null);
+  const sendNote =
+    state === "working" ? busyNote(task.agent.runtime) : undefined;
+  const stopWorking = useCallback(() => {
+    if (activity.working !== null && activity.working !== task.run.id) {
+      stopRun?.(activity.working);
+      return;
+    }
+    stop?.();
+  }, [activity.working, stop, stopRun, task.run.id]);
   const renderBottom = useCallback(
     ({ atBottom, requestVisible, typing, jump }: ThreadPosition) => (
       <>
-        <div className={state === "composer" ? "" : "hidden"}>
-          <ComposerContainer
-            disabledNote={state === "composer" ? null : "Reply when it is done"}
-            nextRun={runs.length + 1}
-          />
-        </div>
         <BottomBar
           atBottom={atBottom}
-          canStop={["running", "queued", "waiting", "offered"].includes(
-            activeStatus ?? task.run.status
-          )}
+          canStop={
+            activity.working !== null ||
+            ["running", "queued", "waiting", "offered"].includes(
+              activeStatus ?? task.run.status
+            )
+          }
           onLatest={jump}
           onReview={review}
-          onStop={stop ?? noop}
+          onStop={stopWorking}
           origin={task.session.origin}
           pending={pending?.kind ?? null}
+          replyBelow={composerOpen}
           requestVisible={requestVisible}
           routingHref={routingHref}
           runNumber={runs.length}
@@ -457,6 +538,13 @@ export function TaskThread({
           typing={typing}
           workingLabel={workingLabel}
         />
+        <div className={composerOpen ? "" : "hidden"}>
+          <ComposerContainer
+            busyNote={composerOpen ? sendNote : undefined}
+            disabledNote={composerOpen ? null : "Reply when it is done"}
+            nextRun={runs.length + 1}
+          />
+        </div>
       </>
     ),
     [
@@ -464,13 +552,16 @@ export function TaskThread({
       runs.length,
       pending?.kind,
       review,
-      stop,
+      stopWorking,
       stopping,
       activeStatus,
+      activity.working,
       task.run.status,
       task.session.origin,
       routingHref,
       workingLabel,
+      composerOpen,
+      sendNote,
     ]
   );
 

@@ -46,6 +46,7 @@ export const createManagedRuntime = ({
     }
   },
   kind: "managed",
+  offerNextOnEnd: true,
   resume: async (run) => {
     requireOrdinaryMachineRun(run);
     await poller.kick(run.id);

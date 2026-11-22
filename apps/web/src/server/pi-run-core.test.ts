@@ -717,6 +717,73 @@ describe("two runs in one session", () => {
   });
 });
 
+describe("steer", () => {
+  test("a steer into a busy active run submits with whenBusy steer, and the run reports what follows", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1", "first"));
+    await h.fake.say("working");
+    const taken = await h.core.steer("run-1", {
+      operationId: "steer-1",
+      text: "use the other file",
+    });
+    expect(taken).toBe(true);
+    expect(h.fake.submitted.at(-1)).toMatchObject({
+      operationId: "steer-1",
+      text: "use the other file",
+      whenBusy: "steer",
+    });
+    await h.fake.say("later");
+    h.fake.finish("run-1", { status: "done" });
+    h.fake.finish("steer-1", { status: "done" });
+    await settle();
+
+    expect(sentFor(h, "run-1").map((e) => e.payload)).toEqual([
+      { text: "working" },
+      { text: "later" },
+    ]);
+    expect(h.completed.map((c) => [c.runId, c.result.text])).toEqual([
+      ["run-1", "later"],
+    ]);
+  });
+
+  test("a steer to an unknown run or a finished run returns false and submits nothing", async () => {
+    const h = build();
+    expect(
+      await h.core.steer("run-unknown", { operationId: "steer-x", text: "hi" })
+    ).toBe(false);
+
+    await h.core.start(startOf("run-1", "first"));
+    await h.fake.say("working");
+    h.fake.finish("run-1", { status: "done", text: "working" });
+    await settle();
+    expect(h.completed).toHaveLength(1);
+
+    const before = h.fake.submitted.length;
+    expect(
+      await h.core.steer("run-1", { operationId: "steer-1", text: "late" })
+    ).toBe(false);
+    expect(h.fake.submitted).toHaveLength(before);
+  });
+
+  test("a steer while Pi is idle returns false and submits nothing", async () => {
+    // The platform refuses the completion, so the run stays active after Pi goes idle.
+    const h = build({
+      complete: () => Promise.reject(new Error("platform unreachable")),
+    });
+    await h.core.start(startOf("run-1", "first"));
+    await h.fake.say("working");
+    h.fake.finish("run-1", { status: "done", text: "working" });
+    await settle();
+    expect(h.storage.data.get("run:run-1")).toMatchObject({ state: "active" });
+
+    const before = h.fake.submitted.length;
+    expect(
+      await h.core.steer("run-1", { operationId: "steer-1", text: "late" })
+    ).toBe(false);
+    expect(h.fake.submitted).toHaveLength(before);
+  });
+});
+
 describe("serial flush", () => {
   test("a burst of commits never has two writes in flight, and no seq is sent twice", async () => {
     const h = build();

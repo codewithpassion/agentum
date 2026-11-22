@@ -14,5 +14,7 @@ export const durableRunnerPort = (
     libraryChanged: (sessionId, paths) =>
       runnerOf(sessionId).libraryChanged(paths),
     start: (input) => runnerOf(input.run.sessionId).startRun(input),
+    steer: (runId, sessionId, message) =>
+      runnerOf(sessionId).steerRun(runId, message),
   };
 };

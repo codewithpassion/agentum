@@ -337,7 +337,8 @@ export interface RuntimeAdapter {
   kind: AgentRuntime;
   /**
    * When true, the runs service offers the agent's next waiting run as soon
-   * as one of its runs ends. Only the cloud runtime sets it, to true.
+   * as one of its runs ends, so a message sent while a run works starts when
+   * that run ends. Every runtime sets it.
    */
   offerNextOnEnd?: boolean;
   resume?: (
@@ -345,6 +346,16 @@ export interface RuntimeAdapter {
     request: RequestRecord,
     deps: AdapterDeps
   ) => Promise<void>;
+  /**
+   * Hands a message to the work in progress on a `running` run, so the agent
+   * reads it before the run ends. Resolves to true when the runtime took it,
+   * false when it did not, and the caller queues the message as the next run.
+   * A runtime without it queues every message.
+   */
+  steer?: (
+    run: RunRecord,
+    message: { operationId: string; text: string }
+  ) => Promise<boolean>;
 }
 
 /** The trusted context `completeRun` gives a gateway. Never read from a post body. */

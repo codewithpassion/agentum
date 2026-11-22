@@ -4428,3 +4428,142 @@ describe("subagents", () => {
     ).rejects.toThrow("3 levels deep");
   });
 });
+
+describe("a message sent while a run works", () => {
+  const send = (runId: string, text: string, requestId?: string) =>
+    runs.sendWhileWorking(user, { input: { text }, requestId, runId });
+
+  /** A cloud-kind runtime that steers or refuses, and records what it was given. */
+  const steeringRuns = (takes: boolean) => {
+    const steered: { runId: string; text: string }[] = [];
+    const adapter: RuntimeAdapter = {
+      ...spyAdapter(),
+      kind: "cloud",
+      offerNextOnEnd: true,
+      steer: (run, message) => {
+        steered.push({ runId: run.id, text: message.text });
+        return Promise.resolve(takes);
+      },
+    };
+    runs = buildRuns({ adapters: [adapter] });
+    return steered;
+  };
+
+  const cloudAgent = async () =>
+    (
+      await agents.create(user, {
+        model: "m",
+        name: "Cloud",
+        runtime: "cloud",
+      })
+    ).id;
+
+  test("a busy cloud run takes it as a steer, shown as a message of that run", async () => {
+    const steered = steeringRuns(true);
+    const agentId = await cloudAgent();
+    const working = await start(user, agentId);
+    await runs.claimRun(SYSTEM_PRINCIPAL, working.runId);
+    const runsBefore = runRowCount();
+
+    const sent = await send(working.runId, "use the other file");
+
+    expect(sent).toMatchObject({ kind: "steered", runId: working.runId });
+    expect(steered).toEqual([
+      { runId: working.runId, text: "use the other file" },
+    ]);
+    expect(runRowCount()).toBe(runsBefore);
+    const message = runEvents(working.runId).findLast(
+      (event) => event.type === "message.user"
+    );
+    expect(JSON.parse(message?.payload ?? "{}")).toMatchObject({
+      steered: true,
+      text: "use the other file",
+    });
+  });
+
+  test("a steer the runtime refuses is queued, and shows no steered message", async () => {
+    const steered = steeringRuns(false);
+    const agentId = await cloudAgent();
+    const working = await start(user, agentId);
+    await runs.claimRun(SYSTEM_PRINCIPAL, working.runId);
+
+    const sent = await send(working.runId, "and then this");
+
+    expect(steered).toHaveLength(1);
+    expect(sent.kind).toBe("queued");
+    expect(sent.runId).not.toBe(working.runId);
+    expect(sent.sessionId).toBe(working.sessionId);
+    expect(runRow(sent.runId)?.status).not.toBe("running");
+    expect(
+      runEvents(working.runId).filter((event) => event.type === "message.user")
+    ).toHaveLength(1);
+    expect(runEvents(sent.runId).map((event) => event.type)).toContain(
+      "message.user"
+    );
+  });
+
+  test("a message with files is queued, not steered", async () => {
+    const steered = steeringRuns(true);
+    const agentId = await cloudAgent();
+    const working = await start(user, agentId);
+    await runs.claimRun(SYSTEM_PRINCIPAL, working.runId);
+    insertFile("f-steer", WORKSPACE, "u1");
+
+    const sent = await runs.sendWhileWorking(user, {
+      input: { fileIds: ["f-steer"], text: "see this" },
+      runId: working.runId,
+    });
+
+    expect(steered).toEqual([]);
+    expect(sent.kind).toBe("queued");
+  });
+
+  test("a busy machine run queues it, and it starts when the run ends", async () => {
+    runs = buildRuns({ adapters: [{ ...spyAdapter(), offerNextOnEnd: true }] });
+    const working = await start(user, spyAgentId);
+    await runs.claimRun(SYSTEM_PRINCIPAL, working.runId);
+
+    const sent = await send(working.runId, "next, please");
+
+    expect(sent.kind).toBe("queued");
+    expect(sent.sessionId).toBe(working.sessionId);
+    dispatched = [];
+    await runs.completeRun(SYSTEM_PRINCIPAL, working.runId, {
+      status: "done",
+      text: "ok",
+    });
+    expect(dispatched).toEqual([sent.runId]);
+  });
+
+  test("removing a queued message cancels its run", async () => {
+    runs = buildRuns({ adapters: [{ ...spyAdapter(), offerNextOnEnd: true }] });
+    const working = await start(user, spyAgentId);
+    await runs.claimRun(SYSTEM_PRINCIPAL, working.runId);
+    const sent = await send(working.runId, "never mind");
+
+    await runs.cancelRun(user, sent.runId);
+
+    expect(runRow(sent.runId)?.status).toBe("cancelled");
+    expect(runRow(working.runId)?.status).toBe("running");
+    dispatched = [];
+    await runs.completeRun(SYSTEM_PRINCIPAL, working.runId, {
+      status: "done",
+      text: "ok",
+    });
+    expect(dispatched).toEqual([]);
+  });
+
+  test("another member's hidden session answers not found", async () => {
+    steeringRuns(true);
+    const agentId = await cloudAgent();
+    const working = await start(user, agentId);
+    await runs.claimRun(SYSTEM_PRINCIPAL, working.runId);
+    const outcome = await failure(
+      runs.sendWhileWorking(outsider, {
+        input: { text: "hi" },
+        runId: working.runId,
+      })
+    );
+    expect(outcome).toBeInstanceOf(ServiceError);
+  });
+});
