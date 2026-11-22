@@ -43,6 +43,18 @@ export const runsRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.services.runs.replyInSubThread(ctx.principal, input)
     ),
+  /** A message while a run works: steered into it or queued as the next run. */
+  sendWhileWorking: workspaceProcedure
+    .input(
+      z.strictObject({
+        input: browserStartRunInputSchema.shape.input,
+        requestId: z.string().min(1).max(200).optional(),
+        runId: z.string().min(1),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      ctx.services.runs.sendWhileWorking(ctx.principal, input)
+    ),
   start: workspaceProcedure
     .input(browserStartRunInputSchema)
     .mutation(({ ctx, input }) =>

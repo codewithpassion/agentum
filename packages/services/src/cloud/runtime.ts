@@ -218,5 +218,15 @@ export const createCloudRuntime = ({
       requireOrdinaryMachineRun(run);
       await runner.answered?.(run.id, run.sessionId, request.id);
     },
+    steer: async (run, message) => {
+      try {
+        return (await runner.steer?.(run.id, run.sessionId, message)) ?? false;
+      } catch (error) {
+        console.error(
+          `Steering cloud run ${run.id} failed, the message is queued: ${describeError(error)}`
+        );
+        return false;
+      }
+    },
   };
 };

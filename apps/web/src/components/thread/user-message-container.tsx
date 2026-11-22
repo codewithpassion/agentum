@@ -1,5 +1,5 @@
 import { MessagePrimitive, useAui, useAuiState } from "@assistant-ui/react";
-import { PencilIcon } from "lucide-react";
+import { PencilIcon, XIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { Bubble, BubbleContent } from "#/components/ui/bubble.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -16,8 +16,16 @@ const ID_SEPARATOR = "\u0000";
 /** A user turn, with its files, an "edited" mark, and "Edit and resend" on the latest one. */
 export function UserMessageContainer() {
   const aui = useAui();
-  const { edited, editableId, files, outsideLabels, memberLabels, active } =
-    useThreadEnv();
+  const {
+    edited,
+    editableId,
+    files,
+    outsideLabels,
+    memberLabels,
+    active,
+    removeWaiting,
+    waiting,
+  } = useThreadEnv();
   const authorLabel = useAuiState(
     (state) => state.message.metadata.custom.authorLabel
   );
@@ -35,6 +43,12 @@ export function UserMessageContainer() {
     [joinedIds]
   );
   const edit = useCallback(() => aui.message().composer().beginEdit(), [aui]);
+  const waitingRun = waiting?.get(id);
+  const remove = useCallback(() => {
+    if (waitingRun !== undefined) {
+      removeWaiting?.(waitingRun);
+    }
+  }, [removeWaiting, waitingRun]);
   return (
     <MessagePrimitive.Root data-role="user">
       <RunMarker>
@@ -60,12 +74,32 @@ export function UserMessageContainer() {
               </div>
             )}
             <div className="flex items-center justify-end gap-2 text-muted-foreground text-xs">
+              {waitingRun === undefined ? null : (
+                <>
+                  <span data-testid="waiting-mark">
+                    Waiting for the current step to end
+                  </span>
+                  <Button
+                    className="min-h-10 md:min-h-9"
+                    data-testid="remove-waiting"
+                    onClick={remove}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <XIcon aria-hidden="true" />
+                    Remove
+                  </Button>
+                </>
+              )}
               {edited.has(id) ? (
                 <span data-testid="edited-mark">
                   Edited. The agent still remembers this message.
                 </span>
               ) : null}
-              {editableId === id && !outsideLabels?.has(id) ? (
+              {editableId === id &&
+              waitingRun === undefined &&
+              !outsideLabels?.has(id) ? (
                 <Button
                   className="min-h-10 md:min-h-9"
                   data-testid="edit-message"
