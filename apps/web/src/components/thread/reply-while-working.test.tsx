@@ -153,11 +153,13 @@ const threadMessage = (
   id: string,
   role: "user" | "assistant",
   runId: string,
-  status: ThreadMessage["status"]
+  status: ThreadMessage["status"],
+  assistantParts: ThreadMessage["parts"] = []
 ): ThreadMessage => ({
   createdAt: null,
   id,
-  parts: role === "user" ? [{ text: `text ${id}`, type: "text" }] : [],
+  parts:
+    role === "user" ? [{ text: `text ${id}`, type: "text" }] : assistantParts,
   role,
   runId,
   status,
@@ -249,4 +251,60 @@ test("a working run with a queued reply shows one Working indicator, and the rep
   expect(host.textContent).toContain("Task 1 is working.");
   expect(host.querySelectorAll('[data-slot="spinner"]')).toHaveLength(1);
   await act(async () => root.unmount());
+});
+
+const renderSingleRun = async (message: ThreadMessage) => {
+  const host = dom.document.createElement("div");
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as Element);
+  await act(async () => {
+    root.render(
+      <Thread messages={[threadMessage("u1", "user", "r1", "done"), message]} />
+    );
+  });
+  return { host, unmount: () => act(async () => root.unmount()) };
+};
+
+const toolCall = (ok: boolean | null): ThreadMessage["parts"] => [
+  {
+    input: { command: "ls" },
+    name: "Bash",
+    ok,
+    result: ok === null ? null : "done",
+    toolUseId: "t1",
+    type: "tool-call",
+  },
+];
+
+const spinners = (host: Element) =>
+  host.querySelectorAll('[data-slot="spinner"]');
+
+test("a running tool card is the one spinner, and the Working line leaves", async () => {
+  const { host, unmount } = await renderSingleRun(
+    threadMessage("a1", "assistant", "r1", "running", toolCall(null))
+  );
+  expect(spinners(host)).toHaveLength(1);
+  expect(
+    host.querySelector('[data-testid="tool-card"] [data-slot="spinner"]')
+  ).not.toBeNull();
+  expect(host.textContent).not.toContain("Working");
+  await unmount();
+});
+
+test("with no tool card running, the turn's Working line is the one spinner", async () => {
+  const { host, unmount } = await renderSingleRun(
+    threadMessage("a1", "assistant", "r1", "running", toolCall(true))
+  );
+  expect(spinners(host)).toHaveLength(1);
+  expect(host.textContent).toContain("Working");
+  await unmount();
+});
+
+test("a waiting run with no request to answer still shows one Working spinner", async () => {
+  const { host, unmount } = await renderSingleRun(
+    threadMessage("a1", "assistant", "r1", "waiting")
+  );
+  expect(spinners(host)).toHaveLength(1);
+  expect(host.textContent).not.toContain("Waiting for an answer");
+  await unmount();
 });

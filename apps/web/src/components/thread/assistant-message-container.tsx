@@ -92,19 +92,41 @@ function ArtifactPart({ data }: { data: unknown }) {
   return artifact === null ? null : <ThreadCard artifact={artifact} />;
 }
 
+function WorkingLine() {
+  return (
+    <p className="flex items-center gap-1.5 text-muted-foreground text-xs">
+      <Spinner className="size-3" /> Working
+    </p>
+  );
+}
+
+/**
+ * The turn's state line. The page shows one spinner while work runs: a running
+ * tool card carries it, so the "Working" line leaves; a run that waits with no
+ * request to answer is working, so it shows "Working".
+ */
 function StatusLine() {
   const status = useAuiState((state) => state.message.status);
+  const runId = useAuiState((state) => state.message.metadata.custom.runId);
+  const toolRunning = useAuiState((state) =>
+    state.message.content.some(
+      (part) => part.type === "tool-call" && part.result === undefined
+    )
+  );
+  const { requests } = useThreadEnv();
   if (status === undefined) {
     return null;
   }
   if (status.type === "running") {
-    return (
-      <p className="flex items-center gap-1.5 text-muted-foreground text-xs">
-        <Spinner className="size-3" /> Working
-      </p>
-    );
+    return toolRunning ? null : <WorkingLine />;
   }
   if (status.type === "requires-action") {
+    const asking = [...requests.values()].some(
+      (view) => view.runId === runId && view.settled === null
+    );
+    if (!asking) {
+      return toolRunning ? null : <WorkingLine />;
+    }
     return (
       <p className="text-muted-foreground text-xs">Waiting for an answer</p>
     );
