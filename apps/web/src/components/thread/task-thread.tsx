@@ -27,7 +27,11 @@ import {
 import { BottomBar } from "./bottom-bar.tsx";
 import { ComposerContainer } from "./composer-container.tsx";
 import { addEditedMark, readEditedMarks } from "./edited-marks.ts";
-import { threadActivity, waitingMessages } from "./thread-activity.ts";
+import {
+  threadActivity,
+  waitingMessages,
+  withoutWaitingTurns,
+} from "./thread-activity.ts";
 import { ThreadContainer, type ThreadPosition } from "./thread-container.tsx";
 import { type ThreadEnv, ThreadEnvProvider } from "./thread-context.tsx";
 import { threadRequestViews } from "./thread-request-views.ts";
@@ -143,12 +147,16 @@ export function TaskThread({
   const folded = earlier.length >= 3 && !showEarlier;
   const visibleMessages = useMemo(
     () =>
-      folded
-        ? messages.filter(
-            (message) => message.runId === null || message.runId >= task.run.id
-          )
-        : messages,
-    [folded, messages, task.run.id]
+      withoutWaitingTurns(
+        folded
+          ? messages.filter(
+              (message) =>
+                message.runId === null || message.runId >= task.run.id
+            )
+          : messages,
+        waiting
+      ),
+    [folded, messages, task.run.id, waiting]
   );
   const expandEarlier = useCallback(() => setShowEarlier(true), []);
   const runMarkers = useMemo(() => {

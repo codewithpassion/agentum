@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { threadActivity, waitingMessages } from "./thread-activity.ts";
+import {
+  threadActivity,
+  waitingMessages,
+  withoutWaitingTurns,
+} from "./thread-activity.ts";
 
 const event = (runId: string | null, type: string) => ({ runId, type });
 
@@ -60,4 +64,50 @@ test("only user messages behind work wait, and a steered one never does", () => 
   // Nothing works: the oldest queued run is about to start, so it does not wait.
   const idle = threadActivity([event("r2", "run.queued")]);
   expect(waitingMessages(messages, idle).size).toBe(0);
+});
+
+test("a working run and a queued one leave one assistant turn, so one spinner", () => {
+  const messages = [
+    { id: "u1", role: "user" as const, runId: "r1" },
+    { id: "a1", role: "assistant" as const, runId: "r1" },
+    { id: "u2", role: "user" as const, runId: "r2" },
+    { id: "a2", role: "assistant" as const, runId: "r2" },
+  ];
+  const activity = threadActivity([
+    event("r1", "run.queued"),
+    event("r1", "run.started"),
+    event("r2", "run.queued"),
+  ]);
+  const waiting = waitingMessages(
+    messages.map((message) => ({ ...message, steered: undefined })),
+    activity
+  );
+  expect(waiting.get("u2")).toBe("r2");
+  expect(withoutWaitingTurns(messages, waiting).map((m) => m.id)).toEqual([
+    "u1",
+    "a1",
+    "u2",
+  ]);
+});
+
+test("with nothing started, only the turn behind the first queued run is dropped", () => {
+  const messages = [
+    { id: "u1", role: "user" as const, runId: "r1" },
+    { id: "a1", role: "assistant" as const, runId: "r1" },
+    { id: "u2", role: "user" as const, runId: "r2" },
+    { id: "a2", role: "assistant" as const, runId: "r2" },
+  ];
+  const activity = threadActivity([
+    event("r1", "run.queued"),
+    event("r2", "run.queued"),
+  ]);
+  const waiting = waitingMessages(
+    messages.map((message) => ({ ...message, steered: undefined })),
+    activity
+  );
+  expect(withoutWaitingTurns(messages, waiting).map((m) => m.id)).toEqual([
+    "u1",
+    "a1",
+    "u2",
+  ]);
 });
