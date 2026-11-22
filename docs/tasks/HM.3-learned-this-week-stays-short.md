@@ -3,7 +3,7 @@ id: HM.3
 title: "Learned this week stays short"
 milestone: HM
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: null
 lane: web-room
@@ -29,3 +29,4 @@ Finding. The side column's "Learned this week" card (`components/agent/room/now/
 ## Log
 - 2026-11-23: added by controller from Dom's screenshots.
 - 2026-11-23: dispatched.
+- 2026-11-23: merged at 8110e46a, review clean after 0 fix rounds. Browser check moved to the end pass.

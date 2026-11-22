@@ -1,3 +1,4 @@
+/** biome-ignore-all lint/suspicious/useAwait: Async act flushes effects. */
 import { expect, test } from "bun:test";
 import type { AgentCard, AgentCardState, Team } from "@repo/db/shared";
 import {
@@ -6,9 +7,12 @@ import {
   createRouter,
   RouterContextProvider,
 } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { type EventTarget, Window } from "happy-dom";
+import { act, type ReactNode } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { NeedsYouChip } from "./roster-logic.ts";
+import { CARD_SIZE_CLASS } from "./agent-card.tsx";
+import { type NeedsYouChip, ROSTER_VIEW_KEY } from "./roster-logic.ts";
 import { RosterWall } from "./roster-wall.tsx";
 
 const router = createRouter({
@@ -268,4 +272,173 @@ test("with no teams the wall stays flat, with no headings or Add to team", () =>
   expect(html).not.toContain("<h2");
   expect(html).not.toContain("Add to team");
   expect(html).not.toContain("No team");
+});
+
+const CLASS_ATTRIBUTE = /class="([^"]*)"/;
+
+test("the add tiles carry the agent card's size classes", () => {
+  const html = render([card("Ruby", "idle")]);
+  const sizeClass = CARD_SIZE_CLASS.split(" ");
+  const classesOf = (anchor: string): string[] => {
+    const start = html.lastIndexOf("<a ", html.indexOf(anchor));
+    const tag = html.slice(start, html.indexOf(">", start));
+    return CLASS_ATTRIBUTE.exec(tag)?.[1]?.split(" ") ?? [];
+  };
+  for (const anchor of ["Ruby", "New agent", "Start from a template"]) {
+    const classes = classesOf(anchor);
+    for (const name of sizeClass) {
+      expect(classes).toContain(name);
+    }
+  }
+});
+
+const GLOBAL_KEYS = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "Node",
+  "KeyboardEvent",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
+
+/** Renders the wall in happy-dom with the browser globals swapped in, then restores them. */
+const withWall = async (
+  cards: readonly AgentCard[],
+  run: (dom: Window, container: HTMLElement) => Promise<void>,
+  seed?: (dom: Window) => void
+) => {
+  const dom = new Window();
+  seed?.(dom);
+  const previous = new Map(
+    GLOBAL_KEYS.map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(globalThis, key),
+    ])
+  );
+  for (const key of GLOBAL_KEYS) {
+    Object.defineProperty(globalThis, key, {
+      configurable: true,
+      value: key === "IS_REACT_ACT_ENVIRONMENT" ? true : Reflect.get(dom, key),
+    });
+  }
+  const container = dom.document.createElement("div");
+  dom.document.body.append(container);
+  const root = createRoot(container as unknown as Element);
+  try {
+    await act(async () =>
+      root.render(
+        <RouterContextProvider router={router}>
+          <RosterWall
+            cards={cards}
+            chips={[]}
+            onAddMember={addMember}
+            teams={[]}
+            userId="user_1"
+            weekCents={new Map()}
+          />
+        </RouterContextProvider>
+      )
+    );
+    await run(dom, container as unknown as HTMLElement);
+  } finally {
+    await act(async () => root.unmount());
+    for (const key of GLOBAL_KEYS) {
+      const value = previous.get(key);
+      if (value) {
+        Object.defineProperty(globalThis, key, value);
+      } else {
+        Reflect.deleteProperty(globalThis, key);
+      }
+    }
+  }
+};
+
+const press = (
+  dom: Window,
+  key: string,
+  target: EventTarget = dom.document,
+  init: { ctrlKey?: boolean; metaKey?: boolean } = {}
+) =>
+  act(async () => {
+    const event = new dom.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key,
+      ...init,
+    });
+    target.dispatchEvent(event);
+  });
+
+const names = (container: HTMLElement): string[] =>
+  Array.from(container.querySelectorAll("li a span.font-medium")).map(
+    (node) => node.textContent
+  );
+
+const WALL = [card("Ada", "idle"), card("Bruce", "idle")];
+
+test("typing a letter opens the filter with it and narrows the cards, ignoring case", async () => {
+  await withWall(WALL, async (dom, container) => {
+    expect(container.querySelector("input")).toBeNull();
+    await press(dom, "B");
+    const input = container.querySelector("input");
+    expect(input?.value).toBe("B");
+    expect(names(container)).toEqual(["Bruce"]);
+    expect(container.textContent).toContain("New agent");
+  });
+});
+
+test("a filter with no match says so in one line", async () => {
+  await withWall(WALL, async (dom, container) => {
+    await press(dom, "z");
+    expect(container.textContent).toContain('No agent matches "z".');
+    expect(names(container)).toEqual([]);
+  });
+});
+
+test("Esc clears the filter and closes the field", async () => {
+  await withWall(WALL, async (dom, container) => {
+    await press(dom, "b");
+    expect(names(container)).toEqual(["Bruce"]);
+    await press(dom, "Escape");
+    expect(container.querySelector("input")).toBeNull();
+    expect(names(container)).toEqual(["Ada", "Bruce"]);
+  });
+});
+
+test("typing inside an input, or with a modifier held, does not open the filter", async () => {
+  await withWall(WALL, async (dom, container) => {
+    const other = dom.document.createElement("input");
+    dom.document.body.append(other);
+    await press(dom, "a", other);
+    expect(container.querySelector("input")).toBeNull();
+    await press(dom, "a", dom.document, { ctrlKey: true });
+    await press(dom, "a", dom.document, { metaKey: true });
+    expect(container.querySelector("input")).toBeNull();
+  });
+});
+
+test("the list toggle shows one row per agent, keeps the filter and is remembered", async () => {
+  await withWall(WALL, async (dom, container) => {
+    expect(container.querySelector('ul[data-view="list"]')).toBeNull();
+    const toggle = container.querySelector<HTMLElement>(
+      'button[aria-label="List view"]'
+    );
+    await act(async () => toggle?.click());
+    expect(container.querySelector('ul[data-view="list"]')).not.toBeNull();
+    expect(dom.localStorage.getItem(ROSTER_VIEW_KEY)).toBe("list");
+    await press(dom, "a");
+    expect(names(container)).toEqual(["Ada"]);
+    expect(container.querySelector('a[href="/agents/new"]')).not.toBeNull();
+  });
+});
+
+test("a saved list choice is applied on load", async () => {
+  await withWall(
+    WALL,
+    async (_dom, container) => {
+      expect(container.querySelector('ul[data-view="list"]')).not.toBeNull();
+    },
+    (dom) => dom.localStorage.setItem(ROSTER_VIEW_KEY, "list")
+  );
 });
