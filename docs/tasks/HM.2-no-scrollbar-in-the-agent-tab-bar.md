@@ -3,7 +3,7 @@ id: HM.2
 title: "No scrollbar in the agent tab bar"
 milestone: HM
 size: XS
-status: in_progress
+status: done
 depends_on: []
 branch: null
 lane: web-room
@@ -26,3 +26,4 @@ The tab bar never shows a scrollbar. On a narrow screen it still scrolls sideway
 ## Log
 - 2026-11-23: added by controller from Dom's screenshot.
 - 2026-11-23: dispatched.
+- 2026-11-23: merged at 726f7aee, review clean after 0 fix rounds. Browser check moved to the end pass.

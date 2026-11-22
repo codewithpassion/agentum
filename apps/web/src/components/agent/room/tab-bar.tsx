@@ -37,14 +37,14 @@ export function TabBar({
   return (
     <div
       aria-label="Agent room"
-      className="-mx-4 flex gap-1 overflow-x-auto border-border border-b px-4 md:mx-0 md:px-0"
+      className="-mx-4 flex gap-1 overflow-x-auto overflow-y-hidden px-4 shadow-[inset_0_-1px_0_0_var(--color-border)] [-ms-overflow-style:none] [scrollbar-width:none] md:mx-0 md:px-0 [&::-webkit-scrollbar]:hidden"
       role="tablist"
     >
       {ROOM_TABS.map((tab) => (
         <button
           aria-controls={panelId(tab)}
           aria-selected={tab === selected}
-          className={`-mb-px pointer-coarse:min-h-11 shrink-0 border-b-2 px-3 py-2 font-medium text-sm ${
+          className={`pointer-coarse:min-h-11 shrink-0 border-b-2 px-3 py-2 font-medium text-sm ${
             tab === selected
               ? "border-primary text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground"
