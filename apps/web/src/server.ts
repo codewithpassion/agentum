@@ -28,6 +28,7 @@ import {
 import { liveExportRoutes } from "./server/live-exports/routes";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
+import { newsletterRoutes } from "./server/newsletter/routes.ts";
 import installAgentumScript from "./server/releases/install-agentum.sh?raw";
 import { mountA2aRoutes } from "./server/routes/a2a.ts";
 import { mountA2aWebhooks } from "./server/routes/a2a-webhooks.ts";
@@ -107,6 +108,10 @@ mountReleaseRoutes(app, {
   bucket: (env) => env.FILES,
   scripts: { agentum: installAgentumScript },
 });
+
+// The landing page's newsletter form (`POST /api/newsletter/subscribe`). Public,
+// so before Clerk: it needs no session and no services.
+app.route("/", newsletterRoutes());
 
 app.route(
   "/",
