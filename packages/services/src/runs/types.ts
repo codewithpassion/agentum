@@ -338,7 +338,7 @@ export interface RuntimeAdapter {
   /**
    * When true, the runs service offers the agent's next waiting run as soon
    * as one of its runs ends, so a message sent while a run works starts when
-   * that run ends. Every runtime sets it.
+   * that run ends. The managed runtime offers its own next run instead.
    */
   offerNextOnEnd?: boolean;
   resume?: (
