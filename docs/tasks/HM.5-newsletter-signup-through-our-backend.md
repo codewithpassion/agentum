@@ -3,7 +3,7 @@ id: HM.5
 title: "Newsletter signup through our own backend"
 milestone: HM
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: null
 lane: web-landing
@@ -37,3 +37,4 @@ Reference implementation: `/home/roboto/devel/harbouredge/harbouredgetraining/ap
 ## Log
 - 2026-11-23: added by controller from Dom's request.
 - 2026-11-23: dispatched.
+- 2026-11-23: merged at 62316721, review clean after 1 fix round. Also merged into the agentum repo's main (ba50e8d4). Turnstile widget and the three Worker secrets set on agentum-v2 and agentum by the controller. Deployed.
