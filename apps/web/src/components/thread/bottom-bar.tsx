@@ -1,5 +1,4 @@
 import { Button } from "#/components/ui/button.tsx";
-import { Spinner } from "#/components/ui/spinner.tsx";
 import type { BottomState } from "../task/task-behaviour.ts";
 
 export function BottomBar({
@@ -70,7 +69,6 @@ export function BottomBar({
   }
   return (
     <div className="flex items-center gap-3 text-sm">
-      <Spinner className="size-4 shrink-0" />
       <div className="min-w-0 flex-1">
         <p className="truncate">
           {workingLabel

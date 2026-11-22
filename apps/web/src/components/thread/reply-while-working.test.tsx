@@ -200,6 +200,21 @@ function Thread({ messages }: { messages: readonly ThreadMessage[] }) {
               }}
             />
           </ThreadPrimitive.Root>
+          <BottomBar
+            atBottom
+            canStop
+            onLatest={noop}
+            onReview={noop}
+            onStop={noop}
+            origin="ui"
+            pending={null}
+            replyBelow
+            requestVisible
+            runNumber={1}
+            state="working"
+            stopping={false}
+            typing={false}
+          />
         </ThreadEnvProvider>
       </AssistantRuntimeProvider>
     </TooltipProvider>
@@ -230,6 +245,8 @@ test("a working run with a queued reply shows one Working indicator, and the rep
   expect(
     queued?.querySelector('[data-testid="remove-waiting"]')
   ).not.toBeNull();
-  expect(queued?.querySelector("svg.animate-spin")).toBeNull();
+  expect(queued?.querySelector('[data-slot="spinner"]')).toBeNull();
+  expect(host.textContent).toContain("Task 1 is working.");
+  expect(host.querySelectorAll('[data-slot="spinner"]')).toHaveLength(1);
   await act(async () => root.unmount());
 });
