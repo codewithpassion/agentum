@@ -17,3 +17,13 @@ test("the bar shows the seven tabs in order and marks the open one", () => {
   expect(html.match(/tabindex="0"/g)).toHaveLength(1);
   expect(html).toContain('aria-controls="room-panel-keys"');
 });
+
+test("the bar never shows a scrollbar but still scrolls sideways", () => {
+  const html = renderToStaticMarkup(<TabBar onSelect={noop} selected="chat" />);
+  const tablist = html.slice(0, html.indexOf(">"));
+  expect(tablist).toContain("overflow-x-auto");
+  expect(tablist).toContain("overflow-y-hidden");
+  expect(tablist).toContain("[scrollbar-width:none]");
+  expect(tablist).toContain("[&amp;::-webkit-scrollbar]:hidden");
+  expect(html).not.toContain("-mb-px");
+});
