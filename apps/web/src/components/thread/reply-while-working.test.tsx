@@ -1,6 +1,7 @@
 /** biome-ignore-all lint/suspicious/useAwait: Async act flushes effects. */
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { ThreadMessageLike } from "@assistant-ui/react";
+import type { ThreadMessage } from "@repo/protocol/thread";
 import { Window } from "happy-dom";
 import { act } from "react";
 
@@ -33,14 +34,22 @@ for (const key of [
   });
 }
 
-const { AssistantRuntimeProvider, useExternalStoreRuntime } = await import(
-  "@assistant-ui/react"
-);
+const { AssistantRuntimeProvider, ThreadPrimitive, useExternalStoreRuntime } =
+  await import("@assistant-ui/react");
 const { createRoot } = await import("react-dom/client");
 const { BottomBar } = await import("./bottom-bar.tsx");
 const { ComposerContainer } = await import("./composer-container.tsx");
 const { busyNote } = await import("./thread-send.ts");
 const { TooltipProvider } = await import("#/components/ui/tooltip");
+const { AssistantMessageContainer } = await import(
+  "./assistant-message-container.tsx"
+);
+const { UserMessageContainer } = await import("./user-message-container.tsx");
+const { ThreadEnvProvider } = await import("./thread-context.tsx");
+const { toThreadMessageLike } = await import("./thread-parts.ts");
+const { threadActivity, waitingMessages, withoutWaitingTurns } = await import(
+  "./thread-activity.ts"
+);
 
 afterAll(() => {
   for (const [key, value] of previous) {
@@ -138,4 +147,89 @@ test("without a reply box under it, the working strip still tells the person to 
   });
   expect(host.textContent).toContain("Reply when it is done.");
   await unmount();
+});
+
+const threadMessage = (
+  id: string,
+  role: "user" | "assistant",
+  runId: string,
+  status: ThreadMessage["status"]
+): ThreadMessage => ({
+  createdAt: null,
+  id,
+  parts: role === "user" ? [{ text: `text ${id}`, type: "text" }] : [],
+  role,
+  runId,
+  status,
+});
+
+function Thread({ messages }: { messages: readonly ThreadMessage[] }) {
+  const activity = threadActivity([
+    { runId: "r1", type: "run.queued" },
+    { runId: "r1", type: "run.started" },
+    { runId: "r2", type: "run.queued" },
+  ]);
+  const waiting = waitingMessages(messages, activity);
+  const shown = withoutWaitingTurns(messages, waiting);
+  const store = useExternalStoreRuntime<ThreadMessageLike>({
+    convertMessage: (item) => item,
+    messages: shown.map((item) => toThreadMessageLike(item)),
+    onNew: () => Promise.resolve(),
+  });
+  return (
+    <TooltipProvider>
+      <AssistantRuntimeProvider runtime={store}>
+        <ThreadEnvProvider
+          value={{
+            agentName: "Agent",
+            answer: () => Promise.resolve(),
+            editableId: null,
+            edited: new Set(),
+            files: new Map(),
+            nowMs: null,
+            removeWaiting: () => undefined,
+            requests: new Map(),
+            waiting,
+          }}
+        >
+          <ThreadPrimitive.Root>
+            <ThreadPrimitive.Messages
+              components={{
+                AssistantMessage: AssistantMessageContainer,
+                UserMessage: UserMessageContainer,
+              }}
+            />
+          </ThreadPrimitive.Root>
+        </ThreadEnvProvider>
+      </AssistantRuntimeProvider>
+    </TooltipProvider>
+  );
+}
+
+test("a working run with a queued reply shows one Working indicator, and the reply shows only as waiting", async () => {
+  const host = dom.document.createElement("div");
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as Element);
+  await act(async () => {
+    root.render(
+      <Thread
+        messages={[
+          threadMessage("u1", "user", "r1", "done"),
+          threadMessage("a1", "assistant", "r1", "running"),
+          threadMessage("u2", "user", "r2", "done"),
+          threadMessage("a2", "assistant", "r2", "running"),
+        ]}
+      />
+    );
+  });
+  const text = host.textContent ?? "";
+  expect(text.split("Working")).toHaveLength(2);
+  expect(host.querySelectorAll('[data-role="assistant"]')).toHaveLength(1);
+  const [, queued] = host.querySelectorAll('[data-role="user"]');
+  expect(queued?.textContent).toContain("Waiting for the current step to end");
+  expect(
+    queued?.querySelector('[data-testid="remove-waiting"]')
+  ).not.toBeNull();
+  expect(queued?.querySelector("svg.animate-spin")).toBeNull();
+  await act(async () => root.unmount());
 });
