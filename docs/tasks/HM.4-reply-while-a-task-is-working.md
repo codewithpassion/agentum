@@ -3,7 +3,7 @@ id: HM.4
 title: "Reply while a task is working"
 milestone: HM
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: null
 lane: web-thread
@@ -35,3 +35,4 @@ Read first: `docs/tasks/C.3-pirun-do.md`, `docs/tasks/C.13-gate-fixes.md`, `pi-r
 ## Log
 - 2026-11-23: added by controller from Dom's screenshot. Controller decision: steer on Cloud (Pi), queue as the next turn elsewhere.
 - 2026-11-23: dispatched.
+- 2026-11-23: merged at 4ba1cd28, review clean after 2 fix rounds. Machine and fake runtimes now offer the next waiting run when a run ends. Browser check moved to the end pass.
