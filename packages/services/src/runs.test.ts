@@ -4553,6 +4553,20 @@ describe("a message sent while a run works", () => {
     expect(dispatched).toEqual([]);
   });
 
+  test("a session that takes no replies from the thread refuses the message", async () => {
+    runs = buildRuns({ adapters: [{ ...spyAdapter(), offerNextOnEnd: true }] });
+    const working = await start(user, spyAgentId, {
+      session: { externalKey: "T1", origin: "slack" },
+    });
+    await runs.claimRun(SYSTEM_PRINCIPAL, working.runId);
+    const before = runRowCount();
+
+    const outcome = await failure(send(working.runId, "hello from the web"));
+
+    expect(outcome).toBeInstanceOf(ServiceError);
+    expect(runRowCount()).toBe(before);
+  });
+
   test("another member's hidden session answers not found", async () => {
     steeringRuns(true);
     const agentId = await cloudAgent();

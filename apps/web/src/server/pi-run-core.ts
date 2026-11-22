@@ -151,6 +151,8 @@ interface StoredRun {
   /** When the run was first started, from `now()`. */
   startedAt: number;
   state: "active" | "finished";
+  /** Operations of messages steered into the run, oldest first. The run is not over until Pi has answered each: a steer that reaches Pi's final boundary starts a turn of its own. */
+  steers?: string[];
   /** The safeguard that stopped the run, kept from the moment it is found: Pi's transcript changes once the abort lands. */
   stop?: RunStop;
   /** Whether the abort for the saved stop has gone through. Until it has, every flush tries it again. */
@@ -475,6 +477,7 @@ export const createRunCore = ({
     try {
       stop = await pi.watch(flush);
       const outcome = await pi.wait(runId);
+      await waitForSteers(runId);
       await stop();
       stop = undefined;
       // The result is built from what was reported, so the last flush has to land.
@@ -504,6 +507,18 @@ export const createRunCore = ({
       await finishRun(runId);
     } finally {
       await stop?.().catch(() => undefined);
+    }
+  };
+
+  /** Waits until Pi has answered every message steered into the run, so their answers are reported before the run completes. */
+  const waitForSteers = async (runId: string) => {
+    for (let waited = 0; ; waited += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: each wait follows the one before, and a steer can arrive meanwhile
+      const operationId = (await load(runId))?.steers?.[waited];
+      if (operationId === undefined) {
+        return;
+      }
+      await pi.wait(operationId);
     }
   };
 
@@ -636,6 +651,13 @@ export const createRunCore = ({
       await inputOf(refOf(runId, run), message.text, [], run.model),
       { operationId: message.operationId, whenBusy: "steer" }
     );
+    const current = await load(runId);
+    if (current && !current.steers?.includes(message.operationId)) {
+      await save(runId, {
+        ...current,
+        steers: [...(current.steers ?? []), message.operationId],
+      });
+    }
     return true;
   };
 

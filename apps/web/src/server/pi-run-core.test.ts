@@ -746,6 +746,32 @@ describe("steer", () => {
     ]);
   });
 
+  test("a steer that Pi answers after the run's own input waits to be reported before the run completes", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1", "first"));
+    await h.fake.say("working");
+    await h.core.steer("run-1", {
+      operationId: "steer-1",
+      text: "one more thing",
+    });
+    // The steer reached Pi's final boundary: the run's input is answered, the steer starts a turn of its own.
+    h.fake.finish("run-1", { status: "done" });
+    await settle();
+    expect(h.completed).toEqual([]);
+
+    await h.fake.say("answer to the steer");
+    h.fake.finish("steer-1", { status: "done" });
+    await settle();
+
+    expect(sentFor(h, "run-1").map((e) => e.payload)).toEqual([
+      { text: "working" },
+      { text: "answer to the steer" },
+    ]);
+    expect(h.completed.map((c) => [c.runId, c.result.text])).toEqual([
+      ["run-1", "answer to the steer"],
+    ]);
+  });
+
   test("a steer to an unknown run or a finished run returns false and submits nothing", async () => {
     const h = build();
     expect(
