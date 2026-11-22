@@ -29,3 +29,8 @@ From the TX gate review, round 1 (nits):
 
 From the end-of-v4 browser pass: `@ada` stays plain text going out to Slack because Ada is an agent, so the SL.8 task wording does not match the code.
 - The room's topic title and topic list rows still show a labelled Slack link as raw `[label](url)` text (end-of-v4 browser re-check). SL.14 fixed only the post body.
+
+From the HM browser pass (`docs/reviews/hm-browser.md`, 2026-11-23):
+- While a task works with a queued reply, the "Right now" card shows the queued message's text instead of the working task, and two Working spinners show.
+- On first load, agentum.rockyshoreslabs.io may log CSP `connect-src` errors for `data:` from the Turnstile script.
+- The Cloud (Pi) steer path of HM.4 was tested only against the faux Pi, not a real Cloud session.
