@@ -200,3 +200,57 @@ export const toggleKey = (
   }
   return next;
 };
+
+/** The cards whose name holds the query, ignoring case. An empty query keeps every card. */
+export const filterCards = (
+  cards: readonly AgentCard[],
+  query: string
+): AgentCard[] => {
+  const needle = query.trim().toLowerCase();
+  return needle === ""
+    ? [...cards]
+    : cards.filter((card) => card.name.toLowerCase().includes(needle));
+};
+
+/** How the wall shows its agents: as cards in a grid, or as one compact row each. */
+export type RosterView = "grid" | "list";
+
+/** The storage key for the view choice. It is per browser, not per person. */
+export const ROSTER_VIEW_KEY = "hm:roster-view";
+
+/** The view saved in this browser. Blocked, missing or malformed storage reads as the grid. */
+export const readView = (
+  storage: () => Pick<Storage, "getItem">
+): RosterView => {
+  try {
+    return storage().getItem(ROSTER_VIEW_KEY) === "list" ? "list" : "grid";
+  } catch {
+    return "grid";
+  }
+};
+
+/** Keeps the view choice. When storage is blocked it is not kept. */
+export const writeView = (
+  storage: () => Pick<Storage, "setItem">,
+  view: RosterView
+): void => {
+  try {
+    storage().setItem(ROSTER_VIEW_KEY, view);
+  } catch {
+    // Storage is blocked, so the choice is not kept.
+  }
+};
+
+/** The parts of a keyboard event that decide whether a key starts a search. */
+export interface SearchKeyEvent {
+  altKey: boolean;
+  ctrlKey: boolean;
+  key: string;
+  metaKey: boolean;
+}
+
+/** True for a plain printable character: no modifier held, and not a space or a named key such as Enter. */
+export const startsSearch = (event: SearchKeyEvent): boolean =>
+  !(event.ctrlKey || event.metaKey || event.altKey) &&
+  event.key.length === 1 &&
+  event.key.trim() !== "";
