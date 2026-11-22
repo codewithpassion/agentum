@@ -772,6 +772,44 @@ describe("steer", () => {
     ]);
   });
 
+  test("stopping a run also stops the turns of its steers", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1", "first"));
+    await h.fake.say("working");
+    await h.core.steer("run-1", { operationId: "steer-1", text: "and this" });
+
+    await h.core.cancel("run-1");
+
+    expect(h.fake.aborted).toEqual(["run-1", "steer-1"]);
+  });
+
+  test("a steer is refused, and nothing is submitted, once the run's work stopped waiting for steers", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const h = build({
+      inputOf: (_run, text) =>
+        text === "too late" ? gate.then(() => text) : Promise.resolve(text),
+    });
+    await h.core.start(startOf("run-1", "first"));
+    await h.fake.say("working");
+    const late = h.core.steer("run-1", {
+      operationId: "steer-1",
+      text: "too late",
+    });
+    // The run ends while the steer's input is still being built.
+    h.fake.finish("run-1", { status: "done" });
+    await settle();
+    expect(h.completed).toHaveLength(1);
+    release();
+
+    expect(await late).toBe(false);
+    expect(h.fake.submitted.map((entry) => entry.operationId)).toEqual([
+      "run-1",
+    ]);
+  });
+
   test("a steer to an unknown run or a finished run returns false and submits nothing", async () => {
     const h = build();
     expect(

@@ -4563,7 +4563,7 @@ describe("a message sent while a run works", () => {
 
     const outcome = await failure(send(working.runId, "hello from the web"));
 
-    expect(outcome).toBeInstanceOf(ServiceError);
+    expect(outcome).toMatchObject({ code: "invalid" });
     expect(runRowCount()).toBe(before);
   });
 

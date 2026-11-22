@@ -2618,7 +2618,10 @@ export const createRunsService = ({
       throw new ServiceError("not_found", "Session not found");
     }
     // The sessions a person replies in from the thread: one the UI started, or a hand-off's sub-thread.
-    if (session.origin !== "ui" && session.parentSessionId === null) {
+    if (
+      session.origin === "artifact" ||
+      (session.origin !== "ui" && session.parentSessionId === null)
+    ) {
       throw new ServiceError("invalid", "This thread takes no replies here");
     }
     const input = startRunInputSchema.parse({

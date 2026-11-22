@@ -286,10 +286,31 @@ export const createRunCore = ({
   const isOver = async (runId: string) =>
     TERMINAL_STATUSES.includes(await statusOf(runId));
 
+  /**
+   * Stops the turns of the messages steered into a run. Once the run's own
+   * input is answered, a steer that reached Pi's final boundary is a turn of
+   * its own, and aborting the run's operation does not reach it. A steer Pi no
+   * longer has is nothing to stop, so a failure here is ignored.
+   */
+  const abortSteers = async (runId: string): Promise<void> => {
+    const steers = (await load(runId))?.steers ?? [];
+    for (const operationId of steers) {
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: a handful of steers, stopped in order
+        await pi.abort(operationId);
+      } catch (error) {
+        console.error(
+          `PiRun: stopping steer ${operationId} of run ${runId}: ${describe(error)}`
+        );
+      }
+    }
+  };
+
   /** Whether the abort call went through. A failed one is tried again by the next flush. */
   const abortQuietly = async (runId: string): Promise<boolean> => {
     try {
       await pi.abort(runId);
+      await abortSteers(runId);
       return true;
     } catch (error) {
       console.error(`PiRun: stopping run ${runId}: ${describe(error)}`);
@@ -438,6 +459,7 @@ export const createRunCore = ({
     if (run?.state !== "active") {
       return;
     }
+    closing.delete(runId);
     const limit = run.maxTurns ?? MAX_TURNS_DEFAULT;
     const sent = { count: 0 };
     let slice: EntryRecord[] = [];
@@ -510,12 +532,20 @@ export const createRunCore = ({
     }
   };
 
+  /**
+   * Runs the work of a run has stopped waiting for steers. A steer after that
+   * would start a turn nobody follows, so `steer` refuses it.
+   */
+  const closing = new Set<string>();
+
   /** Waits until Pi has answered every message steered into the run, so their answers are reported before the run completes. */
   const waitForSteers = async (runId: string) => {
     for (let waited = 0; ; waited += 1) {
       // biome-ignore lint/performance/noAwaitInLoops: each wait follows the one before, and a steer can arrive meanwhile
       const operationId = (await load(runId))?.steers?.[waited];
       if (operationId === undefined) {
+        // No await between the last read and this, so no steer slips in between.
+        closing.add(runId);
         return;
       }
       await pi.wait(operationId);
@@ -629,6 +659,7 @@ export const createRunCore = ({
       return;
     }
     await pi.abort(runId);
+    await abortSteers(runId);
     follow(runId);
   };
 
@@ -643,20 +674,31 @@ export const createRunCore = ({
     message: { operationId: string; text: string }
   ): Promise<boolean> => {
     const run = await load(runId);
-    if (run?.state !== "active" || !(await pi.busy())) {
+    if (run?.state !== "active" || closing.has(runId) || !(await pi.busy())) {
       return false;
     }
-    // `accepted: false` means Pi already holds this operation: the message is in.
-    await pi.submit(
-      await inputOf(refOf(runId, run), message.text, [], run.model),
-      { operationId: message.operationId, whenBusy: "steer" }
-    );
+    const input = await inputOf(refOf(runId, run), message.text, [], run.model);
+    // The work stopped waiting for steers while the input was built: Pi would run this turn with nobody to follow it.
+    if (closing.has(runId)) {
+      return false;
+    }
+    // Recorded before the submit, so the work waits for it. Waiting on an operation Pi does not have returns at once.
     const current = await load(runId);
     if (current && !current.steers?.includes(message.operationId)) {
       await save(runId, {
         ...current,
         steers: [...(current.steers ?? []), message.operationId],
       });
+    }
+    // `accepted: false` means Pi already holds this operation: the message is in.
+    await pi.submit(input, {
+      operationId: message.operationId,
+      whenBusy: "steer",
+    });
+    if (closing.has(runId)) {
+      // The work finished before the submit landed. Stop the turn, and let the caller queue the message.
+      await pi.abort(message.operationId).catch(() => false);
+      return false;
     }
     return true;
   };
