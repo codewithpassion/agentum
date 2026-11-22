@@ -1,4 +1,4 @@
-import { beforeEach, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import {
   MESSAGES,
   NEWSLETTERS_API,
@@ -58,6 +58,10 @@ const post = (
   );
 
 const valid = { email: "a@b.co", turnstileToken: "tok", website: "" };
+
+afterEach(() => {
+  mock.restore();
+});
 
 beforeEach(() => {
   calls = [];
@@ -153,7 +157,7 @@ test.each([
 );
 
 test("missing newsletters config answers a generic error and calls no API", async () => {
-  spyOn(console, "log").mockImplementation(() => undefined);
+  spyOn(console, "error").mockImplementation(() => undefined);
   const response = await post(valid, env({ NEWSLETTERS_API_KEY: undefined }));
   expect(response.status).toBe(502);
   expect(await response.json()).toEqual({
@@ -164,7 +168,7 @@ test("missing newsletters config answers a generic error and calls no API", asyn
 });
 
 test("an upstream 422 answers the invalid-email message, never the upstream text", async () => {
-  spyOn(console, "log").mockImplementation(() => undefined);
+  spyOn(console, "error").mockImplementation(() => undefined);
   apiStatus = 422;
   const response = await post(valid);
   expect(response.status).toBe(422);
@@ -175,7 +179,7 @@ test("an upstream 422 answers the invalid-email message, never the upstream text
 });
 
 test("an upstream 429 answers the rate-limited message", async () => {
-  spyOn(console, "log").mockImplementation(() => undefined);
+  spyOn(console, "error").mockImplementation(() => undefined);
   apiStatus = 429;
   const response = await post(valid);
   expect(response.status).toBe(429);
@@ -186,7 +190,7 @@ test("an upstream 429 answers the rate-limited message", async () => {
 });
 
 test("any other upstream failure answers a generic error without upstream text", async () => {
-  spyOn(console, "log").mockImplementation(() => undefined);
+  spyOn(console, "error").mockImplementation(() => undefined);
   apiStatus = 401;
   const response = await post(valid);
   expect(response.status).toBe(502);

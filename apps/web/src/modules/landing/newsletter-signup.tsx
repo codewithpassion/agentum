@@ -10,6 +10,7 @@ const PRODUCTION_SITE_KEY = "0x4AAAAAAGNxncr7sBoBDII8";
 const TEST_SITE_KEY = "1x00000000000000000000AA";
 const SITE_KEY = import.meta.env.PROD ? PRODUCTION_SITE_KEY : TEST_SITE_KEY;
 const GENERIC_ERROR = "Something went wrong, please try again.";
+const SECURITY_ERROR = "Security check failed, please reload and try again.";
 
 type Status = "error" | "idle" | "sent" | "sending";
 
@@ -43,6 +44,10 @@ export function NewsletterSignup() {
   const turnstile = useRef<TurnstileInstance>(null);
 
   const clearToken = useCallback(() => setToken(""), []);
+  const onWidgetError = useCallback(() => {
+    setToken("");
+    setFeedback({ status: "error", text: SECURITY_ERROR });
+  }, []);
 
   const onSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -123,14 +128,6 @@ export function NewsletterSignup() {
                     tabIndex={-1}
                     type="text"
                   />
-                  <Turnstile
-                    onError={clearToken}
-                    onExpire={clearToken}
-                    onSuccess={setToken}
-                    options={{ size: "invisible" }}
-                    ref={turnstile}
-                    siteKey={SITE_KEY}
-                  />
                   <button
                     className="df-cta df-cta-orange"
                     disabled={sending || token === ""}
@@ -139,6 +136,13 @@ export function NewsletterSignup() {
                     {sending ? "Sending…" : "Subscribe →"}
                   </button>
                 </form>
+                <Turnstile
+                  onError={onWidgetError}
+                  onExpire={clearToken}
+                  onSuccess={setToken}
+                  ref={turnstile}
+                  siteKey={SITE_KEY}
+                />
                 {feedback.status === "error" ? (
                   <p className="df-news-message df-news-error">
                     {feedback.text}

@@ -51,6 +51,9 @@ interface FormBody {
 
 const log = (evt: Record<string, unknown>) =>
   console.log(JSON.stringify({ evt: "newsletter_signup", ...evt }));
+/** A fault on our side (config, upstream): an error line, so it stands out in the Worker logs. */
+const logError = (evt: Record<string, unknown>) =>
+  console.error(JSON.stringify({ evt: "newsletter_signup", ...evt }));
 
 /** One POST to the newsletters API. No `skipConfirmation`: the double opt-in email goes out. */
 async function subscribe(
@@ -60,7 +63,7 @@ async function subscribe(
 ): Promise<number | null> {
   const { NEWSLETTERS_API_KEY: apiKey, NEWSLETTERS_NEWSLETTER_ID: id } = env;
   if (!(apiKey && id)) {
-    log({ outcome: "not_configured" });
+    logError({ outcome: "not_configured" });
     return null;
   }
   try {
@@ -78,7 +81,10 @@ async function subscribe(
     );
     return response.status;
   } catch (e) {
-    log({ error: e instanceof Error ? e.name : "unknown", outcome: "network" });
+    logError({
+      error: e instanceof Error ? e.name : "unknown",
+      outcome: "network",
+    });
     return null;
   }
 }
@@ -128,7 +134,7 @@ export const newsletterRoutes = (
         return c.json({ message: MESSAGES.sent, ok: true });
       }
       if (status !== null) {
-        log({ httpStatus: status, outcome: "upstream" });
+        logError({ httpStatus: status, outcome: "upstream" });
       }
       if (status === HTTP_UNPROCESSABLE) {
         return c.json(
