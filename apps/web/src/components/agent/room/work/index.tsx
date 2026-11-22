@@ -18,7 +18,7 @@ export function WorkTab({ nowMs, room }: RoomTabProps) {
             tasks={room.tasks}
           />
           {archived ? null : (
-            <div className="@3xl:order-none order-first min-w-0">
+            <div className="@3xl:order-none order-first @3xl:max-h-[calc(100dvh-var(--app-header-h))] min-w-0 @3xl:overflow-y-auto">
               <NowPanel nowMs={nowMs} room={room} />
             </div>
           )}
