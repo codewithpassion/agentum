@@ -3,7 +3,7 @@ id: HM.1
 title: "Home roster: equal tiles, type-to-search, list view"
 milestone: HM
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: null
 lane: web-roster
@@ -26,3 +26,4 @@ Dom's small fixes for the agent wall on Home (`components/roster/roster-wall.tsx
 ## Log
 - 2026-11-23: added by controller from Dom's request.
 - 2026-11-23: dispatched.
+- 2026-11-23: merged at d8e2b11a, review clean after 0 fix rounds. Browser check moved to the end pass.
