@@ -101,7 +101,8 @@ function MainThread({
  * Columns follow the space beside the rail, not the window, through a
  * container query. From 48rem the list sits beside the thread, with the Right
  * now panel above them. From 72rem the thread takes the left and the panel and
- * the list stack in a right column, so the thread keeps its width.
+ * the list stack in one right column that scrolls on its own, so the thread
+ * keeps its width and its height.
  */
 export function ChatTab({ nowMs, room }: RoomTabProps) {
   const { agent, threads } = room;
@@ -112,20 +113,23 @@ export function ChatTab({ nowMs, room }: RoomTabProps) {
         className={`grid min-w-0 @3xl:grid-cols-[20rem_minmax(0,1fr)] @3xl:items-start gap-4 ${archived ? "" : "@6xl:grid-cols-[minmax(0,1fr)_20rem]"}`}
       >
         <div
-          className={`min-w-0 ${archived ? "" : "@6xl:col-start-2 @6xl:row-start-2"}`}
+          className={`contents ${archived ? "" : "@6xl:col-start-2 @6xl:row-span-2 @6xl:row-start-1 @6xl:flex @6xl:max-h-[max(24rem,70vh)] @6xl:min-w-0 @6xl:flex-col @6xl:gap-4 @6xl:overflow-y-auto"}`}
+          data-testid="chat-side-column"
         >
-          <ThreadsCard agent={agent} archived={archived} threads={threads} />
+          {archived ? null : (
+            <div className="@6xl:order-none order-first @3xl:col-span-2 min-w-0">
+              <NowPanel nowMs={nowMs} room={room} />
+            </div>
+          )}
+          <div className="min-w-0">
+            <ThreadsCard agent={agent} archived={archived} threads={threads} />
+          </div>
         </div>
         <div
           className={`flex h-[70vh] min-h-96 min-w-0 flex-col overflow-hidden rounded-lg border border-border ${archived ? "" : "@6xl:col-start-1 @6xl:row-span-2 @6xl:row-start-1"}`}
         >
           <MainThread agentId={agent.id} archived={archived} key={agent.id} />
         </div>
-        {archived ? null : (
-          <div className="@6xl:order-none order-first @3xl:col-span-2 @6xl:col-span-1 @6xl:col-start-2 @6xl:row-start-1 min-w-0">
-            <NowPanel nowMs={nowMs} room={room} />
-          </div>
-        )}
       </div>
     </div>
   );
