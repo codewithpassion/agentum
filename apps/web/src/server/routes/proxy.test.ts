@@ -799,6 +799,8 @@ describe("refreshing", () => {
     const holderHasLease = new Promise<void>((resolve) => {
       holding = resolve;
     });
+    // The holder's call stays pending for good. Releasing it would send a
+    // refresh to a stub that belongs to another test.
     onTokenRequest = () => {
       holding();
       return new Promise<void>(() => undefined);
