@@ -262,7 +262,10 @@ const renderSingleRun = async (message: ThreadMessage) => {
       <Thread messages={[threadMessage("u1", "user", "r1", "done"), message]} />
     );
   });
-  return { host, unmount: () => act(async () => root.unmount()) };
+  return {
+    host: host as unknown as Element,
+    unmount: () => act(async () => root.unmount()),
+  };
 };
 
 const toolCall = (ok: boolean | null): ThreadMessage["parts"] => [
