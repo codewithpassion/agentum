@@ -3,7 +3,7 @@ id: FX.6
 title: "Connector refresh tests are stable under load"
 milestone: FX
 size: S
-status: todo
+status: in_progress
 depends_on: []
 branch: null
 lane: e2e-scripts
@@ -19,9 +19,11 @@ The FX.4 merge check failed on two tests in `apps/web/src/server/routes/proxy.te
 
 ## Check
 
-- `proxy.test.ts` passes 10 times in a row while another `bun run test` runs alongside it.
-- `bun run check && bun run test && bun run build` pass.
+- Remove the `.skip` FX.7 added and take the entry out of `docs/backlog/flaky-tests.md`. The fix removes the timing or shared-state dependence itself (fake clock, per-test state, a readiness wait instead of a sleep), so the test does not depend on machine load. It passes 5 times in a row run alone. Never generate load to reproduce: no parallel test runs, no busy loops, no stress tools (Dom's rule).
+- `bun run check` and the changed packages' tests and build pass.
 
 ## Log
 - 2026-11-21: added by controller after the FX.4 merge check failed on these two tests.
 - 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
+- 2026-11-23: back in scope on Dom's call. Controller amended the Check: re-enable the FX.7-skipped tests, no load generation.
+- 2026-11-23: dispatched.

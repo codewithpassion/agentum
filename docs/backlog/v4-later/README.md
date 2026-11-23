@@ -3,7 +3,7 @@
 Tasks moved out of v4 on 2026-11-21, when Dom froze the scope. From then on, only bugs that break a v4 promise, or security and data problems, stay in v4. New features, test tooling and polish wait here.
 
 - TX.10, TX.11, TX.12, TM.15, TM.16, SL.9, DR.13 and TM.14 went back to docs/tasks/ on 2026-11-22, on Dom's call.
-- FX.5, FX.6: fixes for load-flaky tests, replaced by FX.7, which disables those tests
+- FX.5 and FX.6 went back to docs/tasks/ on 2026-11-23.
 
 Each file keeps its scope and log. To bring one back, move it into docs/tasks/.
 

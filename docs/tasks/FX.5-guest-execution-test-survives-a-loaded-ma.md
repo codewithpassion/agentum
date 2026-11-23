@@ -3,7 +3,7 @@ id: FX.5
 title: "The guest execution test survives a loaded machine"
 milestone: FX
 size: S
-status: todo
+status: in_progress
 depends_on: [FX.4]
 branch: null
 lane: e2e-scripts
@@ -20,10 +20,12 @@ FX.4's dispatcher saw `guest-execution.test.ts` (apps/web) fail twice in full `b
 
 ## Check
 
-- The test passes 10 times in a row while another `bun run test` runs alongside it.
-- `bun run check && bun run test && bun run build` pass.
+- Remove the `.skip` FX.7 added and take the entry out of `docs/backlog/flaky-tests.md`. The fix removes the timing or shared-state dependence itself (fake clock, per-test state, a readiness wait instead of a sleep), so the test does not depend on machine load. It passes 5 times in a row run alone. Never generate load to reproduce: no parallel test runs, no busy loops, no stress tools (Dom's rule).
+- `bun run check` and the changed packages' tests and build pass.
 
 ## Log
 - 2026-11-21: added by controller from the FX.4 report.
 - 2026-11-21: dispatched.
 - 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
+- 2026-11-23: back in scope on Dom's call. Controller amended the Check: re-enable the FX.7-skipped tests, no load generation.
+- 2026-11-23: dispatched.
