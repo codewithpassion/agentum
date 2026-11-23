@@ -789,16 +789,24 @@ describe("refreshing", () => {
     expect(after.secret).toBe(regranted);
   });
 
-  // biome-ignore lint/suspicious/noSkippedTests: flaky under load, disabled by FX.7, see docs/backlog/flaky-tests.md
-  test.skip("a lease holder that dies leaves a lease that expires in 30 s, and the next caller takes it", async () => {
+  test("a lease holder that dies leaves a lease that expires in 30 s, and the next caller takes it", async () => {
     startStub({ failOnce: true });
     const id = await seedOAuthCredential();
     addRun("run_1");
     const token = await tokenFor("run_1");
     // The first caller takes the lease and never comes back.
-    onTokenRequest = () => new Promise<void>(() => undefined);
+    let holding: () => void = () => undefined;
+    const holderHasLease = new Promise<void>((resolve) => {
+      holding = resolve;
+    });
+    onTokenRequest = () => {
+      holding();
+      return new Promise<void>(() => undefined);
+    };
     Promise.resolve(call(token)).catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Wait until the holder is inside the token endpoint call, not for a
+    // fixed time: it has the lease then, however slow the machine is.
+    await holderHasLease;
     const leased = await credentialRow(id);
     expect(Date.parse(leased.refreshingUntil ?? "")).toBe(nowMs + 30_000);
 
@@ -815,8 +823,7 @@ describe("refreshing", () => {
     expect((await credentialRow(id)).version).toBe(2);
   });
 
-  // biome-ignore lint/suspicious/noSkippedTests: flaky under load, disabled by FX.7, see docs/backlog/flaky-tests.md
-  test.skip("--fail-once with no refresh token sets needs_auth and appends connector.needs_auth", async () => {
+  test("--fail-once with no refresh token sets needs_auth and appends connector.needs_auth", async () => {
     startStub({ failOnce: true });
     const id = await seedOAuthCredential({
       accessToken: STUB_TOKEN,
