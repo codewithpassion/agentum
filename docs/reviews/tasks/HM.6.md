@@ -1,12 +1,13 @@
 # HM.6 review: one working indicator with a queued reply
 
-Branch `task/HM.6-one-working-indicator-with-a-queued-reply`. Verdict: clean after 2 fix rounds.
+Branch `task/HM.6-one-working-indicator-with-a-queued-reply`. Verdict: clean after 4 fix rounds.
 
 ## Rounds
 
 1. Round 1 on 31dbc389: must-fix. The task's component test (a working run plus a queued run renders one working indicator, and the queued message renders without a spinner) was missing. Fixed in f9a6b12e, which renders the real thread containers in `reply-while-working.test.tsx`.
 2. Round 2 on f9a6b12e: clean.
 3. The controller then asked for two nit fixes, done in af76dfa1: the bottom bar strip lost its own spinner, so the task page has one (the turn's "Working"), and `activeRun` takes the oldest open run in the newest session, so a stale queued run in an old session does not hold Right now. Round 3 on af76dfa1: clean.
+4. Dom then wanted no two spinners anywhere on the task page. Round 4 on a9835645: must-fix. A waiting run with a pending tool call showed zero spinners, and parallel running tool calls each spun. Fixed in 99344c41: only the turn's latest tool call spins, and only while the turn runs. The turn's "Working" line hides while that tool card spins, and a waiting run with no open request always shows "Working". Round 5 on 99344c41: clean.
 
 ## Cause and fix
 
@@ -20,8 +21,9 @@ The HM.4 flow with a machine agent on the fake daemon, desktop and phone, is lef
 
 - The root cause in `packages/protocol/src/thread.ts` (`statusOf`) is left as is. The fix hides the turn in the view, because other consumers share the fold.
 - On the page of a queued run with 3 or more earlier runs, the folded view hides the working run's turn and the queued run's own, so only "Task N is working." shows, without a spinner.
-- A run that is "waiting" with no pending request is in the working state, but its turn reads "Waiting for an answer" without a spinner.
-- A running tool card has its own spinner next to the turn's "Working", so a tool call shows two spinners (predates HM.6).
+- A tool call with no result that may not spin is drawn as done, with no mark: an earlier parallel call, a pending call in a waiting turn, an unfinished call in a cancelled turn.
+- No test for a running turn whose latest tool call is done while an earlier one is pending (the code shows "Working" there).
+- A user who collapses a running tool group by hand hides its spinner, so the page shows none.
 - The strip's text no longer carries `role="status"` that the removed spinner had.
 - When the page shows the waiting run itself, its turn is hidden, so `lastAnswer`, `filesLine` and `failure` point at a message that is not drawn.
 - The render test repeats the filter wiring of `task-thread.tsx` instead of rendering `TaskThread`.
