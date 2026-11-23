@@ -85,10 +85,6 @@
   // Local dev overrides it from .env.local (see .env.example).
   "vars": {
     "PUBLIC_BASE_URL": "https://agentumbot.io",
-    // Old hostnames this Worker still answers on (comma separated). A browser
-    // page load there gets a 301 to PUBLIC_BASE_URL; API calls, webhooks and
-    // machine sockets are served in place (src/server/legacy-host.ts).
-    "LEGACY_HOSTS": "harbourmaster.rockyshoreslabs.io",
     // How long a Linux VM sits idle before it snapshots /workspace and sleeps.
     "LINUX_VM_IDLE_SECONDS": "180",
     // Agent mail (task V5.7). An empty MAIL_DOMAIN turns mail off. Production
@@ -126,11 +122,7 @@
       "simple": { "limit": 300, "period": 60 }
     }
   ],
-  "routes": [
-    { "pattern": "agentumbot.io", "custom_domain": true },
-    // The old hostname, kept for LEGACY_HOSTS.
-    { "pattern": "harbourmaster.rockyshoreslabs.io", "custom_domain": true }
-  ],
+  "routes": [{ "pattern": "agentumbot.io", "custom_domain": true }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "agentum-v2-files" }],
   "d1_databases": [
     {
@@ -153,13 +145,7 @@
       // this Worker, as the comment on the top-level `triggers` says.
       "triggers": { "crons": [] },
       // Routes are inherited: staging must name its own, or it takes production's domain.
-      "routes": [
-        { "pattern": "staging.agentumbot.io", "custom_domain": true },
-        {
-          "pattern": "harbourmaster-staging.rockyshoreslabs.io",
-          "custom_domain": true
-        }
-      ],
+      "routes": [{ "pattern": "staging.agentumbot.io", "custom_domain": true }],
       "workers_dev": true,
       "durable_objects": {
         "bindings": [
@@ -195,7 +181,6 @@
       "browser": { "binding": "BROWSER" },
       "vars": {
         "PUBLIC_BASE_URL": "https://staging.agentumbot.io",
-        "LEGACY_HOSTS": "harbourmaster-staging.rockyshoreslabs.io",
         "LINUX_VM_IDLE_SECONDS": "180",
         "MAIL_DOMAIN": "rockyshoreslabs.io",
         // The zone id of rockyshoreslabs.io, from the zone's Overview page.
@@ -280,9 +265,6 @@
         // holds it. Mail is off in previews: an empty MAIL_DOMAIN.
         "vars": {
           "PUBLIC_BASE_URL": "",
-          // In phase 1 agentumbot.io is listed here, so its page loads go to the app
-          // on the old hostname, where today's Clerk instance can sign people in.
-          "LEGACY_HOSTS": "harbourmaster.rockyshoreslabs.io",
           "LINUX_VM_IDLE_SECONDS": "180",
           "MAIL_DOMAIN": "",
           "MAIL_ZONE_ID": "",
