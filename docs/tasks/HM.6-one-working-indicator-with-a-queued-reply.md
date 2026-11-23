@@ -3,7 +3,7 @@ id: HM.6
 title: "One working indicator with a queued reply"
 milestone: HM
 size: S
-status: in_progress
+status: done
 depends_on: [HM.4]
 branch: null
 lane: web-thread
@@ -30,3 +30,4 @@ Finding. While a task works and a reply waits behind it (HM.4), the task page sh
 ## Log
 - 2026-11-23: added by controller from the HM browser pass and Dom's request.
 - 2026-11-23: dispatched.
+- 2026-11-23: merged at d83f3f42, review clean after 4 fix rounds. Controller sent back twice: the bottom bar's spinner, a stale queued run holding Right now, and a tool card spinning next to Working.
