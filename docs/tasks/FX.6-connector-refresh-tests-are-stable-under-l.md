@@ -3,7 +3,7 @@ id: FX.6
 title: "Connector refresh tests are stable under load"
 milestone: FX
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: null
 lane: e2e-scripts
@@ -27,3 +27,4 @@ The FX.4 merge check failed on two tests in `apps/web/src/server/routes/proxy.te
 - 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
 - 2026-11-23: back in scope on Dom's call. Controller amended the Check: re-enable the FX.7-skipped tests, no load generation.
 - 2026-11-23: dispatched.
+- 2026-11-23: merged at 568c2ff9, review clean after 0 fix rounds. Both tests re-enabled.
