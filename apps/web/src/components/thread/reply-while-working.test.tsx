@@ -311,3 +311,27 @@ test("a waiting run with no request to answer still shows one Working spinner", 
   expect(host.textContent).not.toContain("Waiting for an answer");
   await unmount();
 });
+
+test("a waiting run with a tool call still pending shows one Working spinner", async () => {
+  const { host, unmount } = await renderSingleRun(
+    threadMessage("a1", "assistant", "r1", "waiting", toolCall(null))
+  );
+  expect(spinners(host)).toHaveLength(1);
+  expect(host.textContent).toContain("Working");
+  await unmount();
+});
+
+test("parallel running tool calls show one spinner, on the latest", async () => {
+  const [first] = toolCall(null);
+  const { host, unmount } = await renderSingleRun(
+    threadMessage("a1", "assistant", "r1", "running", [
+      ...(first ? [first] : []),
+      ...toolCall(null).map((part) =>
+        part.type === "tool-call" ? { ...part, toolUseId: "t2" } : part
+      ),
+    ])
+  );
+  expect(spinners(host)).toHaveLength(1);
+  expect(host.textContent).not.toContain("Working");
+  await unmount();
+});

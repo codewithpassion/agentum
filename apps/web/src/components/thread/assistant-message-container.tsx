@@ -108,11 +108,12 @@ function WorkingLine() {
 function StatusLine() {
   const status = useAuiState((state) => state.message.status);
   const runId = useAuiState((state) => state.message.metadata.custom.runId);
-  const toolRunning = useAuiState((state) =>
-    state.message.content.some(
-      (part) => part.type === "tool-call" && part.result === undefined
-    )
-  );
+  const toolRunning = useAuiState((state) => {
+    const last = state.message.content.findLast(
+      (part) => part.type === "tool-call"
+    );
+    return last !== undefined && last.result === undefined;
+  });
   const { requests } = useThreadEnv();
   if (status === undefined) {
     return null;
@@ -125,7 +126,7 @@ function StatusLine() {
       (view) => view.runId === runId && view.settled === null
     );
     if (!asking) {
-      return toolRunning ? null : <WorkingLine />;
+      return <WorkingLine />;
     }
     return (
       <p className="text-muted-foreground text-xs">Waiting for an answer</p>
