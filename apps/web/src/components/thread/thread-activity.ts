@@ -81,3 +81,22 @@ export function waitingMessages(
   }
   return waiting;
 }
+
+/**
+ * The messages to draw. A run that waits behind work has not started, so its
+ * empty assistant turn would show a second "Working" spinner. Only the waiting
+ * user message stays, with its Remove button.
+ */
+export function withoutWaitingTurns<
+  T extends Pick<ThreadMessage, "role" | "runId">,
+>(messages: readonly T[], waiting: ReadonlyMap<string, string>): T[] {
+  const runIds = new Set(waiting.values());
+  return messages.filter(
+    (message) =>
+      !(
+        message.role === "assistant" &&
+        message.runId !== null &&
+        runIds.has(message.runId)
+      )
+  );
+}
