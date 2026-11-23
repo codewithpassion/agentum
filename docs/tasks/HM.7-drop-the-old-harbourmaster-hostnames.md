@@ -3,7 +3,7 @@ id: HM.7
 title: "Drop the old harbourmaster hostnames"
 milestone: HM
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: null
 lane: web-infra
@@ -31,3 +31,4 @@ The controller detaches the custom domains in Cloudflare after deploy. Do not to
 ## Log
 - 2026-11-23: added by controller from Dom's request, after a traffic check.
 - 2026-11-23: dispatched.
+- 2026-11-23: merged at 288a8eee, review clean after 0 fix rounds.
