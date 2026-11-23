@@ -44,6 +44,10 @@ import {
   createTeamDiaryPoster,
   type TeamDiaryPostResult,
 } from "./dream/team/diary-post.ts";
+import {
+  createHandOffRetrier,
+  type HandOffRetryResult,
+} from "./dream/team/hand-off-retry.ts";
 import { createTeamDreamRunner } from "./dream/team/run.ts";
 import { loadTeamRecord } from "./dream/team/team.ts";
 import { createTeamUndo } from "./dream/team/undo.ts";
@@ -57,6 +61,7 @@ import { isServiceError, notFound, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import {
   readableWorkspace,
+  requireAgentDecider,
   requireAgentOwnerOrAdmin,
   requireSession,
 } from "./guards.ts";
@@ -115,7 +120,7 @@ export interface DreamDeps {
   /** The same fetch the agent builder calls Anthropic with. */
   fetch: Fetcher;
   /** The team diary (at its 08:00 slot) and the hand-off requests are posted in the team room through this. */
-  inbox: Pick<InboxService, "postNotice">;
+  inbox: Pick<InboxService, "postNotice" | "retryNoticeWake">;
   library: DreamMemoryLibrary;
   managedKeys: Pick<ManagedKeysService, "resolve">;
   /** A person's answer to a question forgets the notes it did not keep, as that person. */
@@ -167,6 +172,11 @@ export const createDreamService = (deps: DreamDeps) => {
     db,
     inbox: deps.inbox,
   });
+  const handOffRetrier = createHandOffRetrier({
+    clock,
+    db,
+    inbox: deps.inbox,
+  });
 
   const runIn = async (workspaceId: string, id: string): Promise<RunRow> => {
     const [row] = await db
@@ -197,7 +207,7 @@ export const createDreamService = (deps: DreamDeps) => {
     return run as DreamRun;
   };
 
-  /** The owner or an org admin, on a browser session: who may start, undo or decide a dream. */
+  /** The owner or an org admin, on a browser session: who may start or undo a dream. */
   const ownerSession = async (
     principal: Principal,
     workspaceId: string,
@@ -208,6 +218,26 @@ export const createDreamService = (deps: DreamDeps) => {
     requireAgentOwnerOrAdmin(
       user,
       { createdBy: agent.createdBy, ownerUserId: agent.ownerUserId },
+      DREAM_WRITE
+    );
+    return { agent, user };
+  };
+
+  /** The owner, the backup owner or an org admin, on a browser session: who may decide a held dream batch. */
+  const deciderSession = async (
+    principal: Principal,
+    workspaceId: string,
+    agentId: string
+  ) => {
+    const user = requireSession(principal, DREAM_WRITE);
+    const agent = await loadDreamAgent(db, agentId, workspaceId);
+    requireAgentDecider(
+      user,
+      {
+        backupUserId: agent.backupUserId,
+        createdBy: agent.createdBy,
+        ownerUserId: agent.ownerUserId,
+      },
       DREAM_WRITE
     );
     return { agent, user };
@@ -240,6 +270,27 @@ export const createDreamService = (deps: DreamDeps) => {
         and(
           eq(dreamRuns.workspaceId, workspaceId),
           eq(dreamRuns.agentId, agentId)
+        )
+      )
+      .orderBy(desc(dreamRuns.startedAt), desc(dreamRuns.id))
+      .limit(RUNS_LIMIT);
+    return await withHeld(rows);
+  };
+
+  /** The team's dreams, newest first. A team dream belongs to no agent, so `list` never returns it. */
+  const listTeam = async (
+    principal: Principal,
+    teamId: string
+  ): Promise<DreamRun[]> => {
+    const workspaceId = readableWorkspace(principal, DREAM_READ);
+    authorize(principal, DREAM_READ, dreamResource(workspaceId, teamId));
+    const rows = await db
+      .select()
+      .from(dreamRuns)
+      .where(
+        and(
+          eq(dreamRuns.workspaceId, workspaceId),
+          eq(dreamRuns.teamId, teamId)
         )
       )
       .orderBy(desc(dreamRuns.startedAt), desc(dreamRuns.id))
@@ -355,7 +406,7 @@ export const createDreamService = (deps: DreamDeps) => {
         "A team dream applies at once, so it holds nothing to approve"
       );
     }
-    const { agent, user } = await ownerSession(
+    const { agent, user } = await deciderSession(
       principal,
       workspaceId,
       run.agentId
@@ -680,6 +731,16 @@ export const createDreamService = (deps: DreamDeps) => {
     return await diaryPoster.postDue();
   };
 
+  /** The minute tick's retry job: wakes a team lead for a hand-off request whose first wake was refused. */
+  const retryHandOffWakes = async (
+    principal: Principal
+  ): Promise<HandOffRetryResult> => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError(DREAM_FIRE);
+    }
+    return await handOffRetrier.retry();
+  };
+
   /** The minute tick's repair job: every active agent whose schedule is not off has its dream trigger. */
   const syncTriggers = async (principal: Principal): Promise<number> => {
     if (principal.kind !== "system") {
@@ -696,7 +757,9 @@ export const createDreamService = (deps: DreamDeps) => {
     fireDueTeams,
     get,
     list,
+    listTeam,
     postTeamDiaries,
+    retryHandOffWakes,
     runNow,
     runTeamNow,
     syncTriggers,

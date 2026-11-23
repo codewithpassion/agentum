@@ -33,6 +33,8 @@ import {
   type SlackAppRow,
 } from "./apps.ts";
 import { createSlackClient, type SlackFetch } from "./client.ts";
+import { convertMentions } from "./mentions.ts";
+import { linkedPeople } from "./people.ts";
 import { describeFailure, withRetry } from "./post.ts";
 import { reportRoomFailure } from "./room-failure.ts";
 import {
@@ -43,10 +45,8 @@ import {
   roomMessageOfPost,
   topicRootTs,
 } from "./room-out-store.ts";
-import { cutForSlack, speakerLine } from "./room-out-text.ts";
+import { cutForSlack, speakerLine, toSlackMrkdwn } from "./room-out-text.ts";
 
-/** An author id that starts like this is a Slack guest, whose post came from Slack. */
-const GUEST_PREFIX = "slack:";
 const NO_APP = "no_app";
 const UNREADABLE_TOKEN = "token_unreadable";
 
@@ -153,10 +153,38 @@ export const createRoomOutbound = ({
     ];
   };
 
+  /** The mrkdwn text with each `@name` that is one linked person turned into a Slack mention. */
+  const withMentions = async (
+    client: ReturnType<typeof createSlackClient>,
+    app: SlackAppRow,
+    text: string
+  ): Promise<string> => {
+    if (!text.includes("@")) {
+      return text;
+    }
+    try {
+      return convertMentions(
+        text,
+        await linkedPeople(db, client, {
+          teamId: app.teamId,
+          workspaceId: app.workspaceId,
+        })
+      ).text;
+    } catch (error) {
+      console.error("Slack room mention lookup failed", error);
+      return text;
+    }
+  };
+
   /** One app's try. A config failure (not in the channel, a bad token) moves on to the next app. */
   const sendThrough = async (
     sender: Sender,
-    message: { channel: string; text: string; threadTs: string | undefined }
+    message: {
+      channel: string;
+      name: string | null;
+      text: string;
+      threadTs: string | undefined;
+    }
   ): Promise<SendResult> => {
     let token: string | null;
     try {
@@ -168,7 +196,15 @@ export const createRoomOutbound = ({
       return { error: NO_APP, kind: "next" };
     }
     const client = createSlackClient({ fetch: slackFetch, token });
-    const posted = await withRetry(clock, () => client.postMessage(message));
+    const body = await withMentions(client, sender.app, message.text);
+    const posted = await withRetry(clock, () =>
+      client.postMessage({
+        channel: message.channel,
+        mrkdwn: true,
+        text: sender.own ? cutForSlack(body) : speakerLine(message.name, body),
+        threadTs: message.threadTs,
+      })
+    );
     if (posted.kind === "ok") {
       return { kind: "sent", ts: posted.ts };
     }
@@ -186,7 +222,7 @@ export const createRoomOutbound = ({
       .limit(1);
     if (
       !post ||
-      post.authorId.startsWith(GUEST_PREFIX) ||
+      post.guestName !== null ||
       (await roomMessageOfPost(db, post.id))
     ) {
       return;
@@ -195,7 +231,7 @@ export const createRoomOutbound = ({
       threadId: post.threadId,
       workspaceId: post.workspaceId,
     });
-    const text = stripAttachmentMarkers(post.text).trim();
+    const text = toSlackMrkdwn(stripAttachmentMarkers(post.text).trim());
     if (!room || text === "") {
       return;
     }
@@ -210,7 +246,8 @@ export const createRoomOutbound = ({
       // biome-ignore lint/performance/noAwaitInLoops: the next app is tried only when this one could not post
       const result = await sendThrough(sender, {
         channel: room.channelId,
-        text: sender.own ? cutForSlack(text) : speakerLine(name, text),
+        name,
+        text,
         threadTs: root ?? undefined,
       });
       if (result.kind === "sent") {
@@ -259,7 +296,7 @@ export const createRoomOutbound = ({
     await job;
   };
 
-  return { onEvent };
+  return { onEvent, send };
 };
 
 export type RoomOutbound = ReturnType<typeof createRoomOutbound>;

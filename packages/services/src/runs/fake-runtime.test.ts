@@ -1,8 +1,13 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
+import { inboxThreads as threadRows } from "@repo/db/schema/inbox";
 import { runRequests as requestRows } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
+import {
+  teamMembers as teamMemberRows,
+  teams as teamRows,
+} from "@repo/db/schema/teams";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import type { MemoryNote } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
@@ -522,4 +527,190 @@ test("an ask run without a requests service fails with a line saying so", async 
 
   expect(summary.status).toBe("failed");
   expect(summary.error).toContain("requests service");
+});
+
+const TEAM = "team-1";
+const THREAD = "thread-1";
+
+interface McpCall {
+  args: Record<string, unknown>;
+  auth: string | null;
+  name: string;
+  url: string;
+}
+
+/**
+ * A lead with one member agent in a team room, and a stand-in for the app's
+ * `/mcp` route that records the calls a room run makes and answers as the
+ * team tools would.
+ */
+const leadRoom = async () => {
+  const lead = await agents.create(user, {
+    model: "m",
+    name: "Maya",
+    runtime: "fake",
+    slug: "maya",
+  });
+  const scout = await agents.create(user, {
+    model: "m",
+    name: "Scout",
+    runtime: "fake",
+    slug: "scout",
+  });
+  db.insert(teamRows)
+    .values({
+      createdAt: START,
+      id: TEAM,
+      leadAgentId: lead.id,
+      name: "Support",
+      slug: "support",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(teamMemberRows)
+    .values({
+      memberId: scout.id,
+      memberKind: "agent",
+      teamId: TEAM,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(threadRows)
+    .values({
+      createdAt: START,
+      createdBy: user.userId,
+      id: THREAD,
+      lastPostAt: START,
+      teamId: TEAM,
+      title: "Plans",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const calls: McpCall[] = [];
+  const mcp: ProxyAccess = {
+    baseUrl: BASE_URL,
+    fetch: async (request) => {
+      const body = (await request.json()) as {
+        params: { arguments: Record<string, unknown>; name: string };
+      };
+      const { name } = body.params;
+      calls.push({
+        args: body.params.arguments,
+        auth: request.headers.get("authorization"),
+        name,
+        url: request.url,
+      });
+      const members = {
+        members: [
+          { handle: "maya", id: lead.id, isLead: true, kind: "agent" },
+          { handle: "scout", id: scout.id, isLead: false, kind: "agent" },
+        ],
+      };
+      const answers: Record<string, unknown> = {
+        team_members: members,
+        team_post: { post: { id: "p1" }, runs: [] },
+        team_propose_change: { agentId: scout.id, field: "model" },
+      };
+      return Response.json({
+        id: 1,
+        jsonrpc: "2.0",
+        result: {
+          content: [{ text: `${name} done`, type: "text" }],
+          structuredContent: answers[name],
+        },
+      });
+    },
+  };
+  const leadRuns = buildRuns(mcp);
+  const run = async (text: string) => {
+    const started = await leadRuns.startRun(user, {
+      agentId: lead.id,
+      input: { text },
+      session: { externalKey: THREAD, origin: "inbox" },
+    });
+    return {
+      events: db
+        .select()
+        .from(eventRows)
+        .where(eq(eventRows.runId, started.runId))
+        .all(),
+      summary: await leadRuns.waitForRun(user, started.runId, 5000),
+    };
+  };
+  return { calls, run, scout };
+};
+
+test("a lead's room run with assign:handle posts to the room through /mcp with its run token", async () => {
+  const { calls, run } = await leadRoom();
+
+  const { events, summary } = await run("@maya sort out billing assign:scout");
+
+  expect(summary).toMatchObject({
+    resultText: "Assigned this to scout.",
+    status: "done",
+  });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({
+    args: { text: "@scout Please take this: sort out billing", topic: THREAD },
+    name: "team_post",
+    url: `${BASE_URL}/mcp`,
+  });
+  expect(calls[0]?.auth).toStartWith("Bearer ");
+  const types = events.map((event) => event.type);
+  expect(types).toContain("tool.call");
+  expect(types).toContain("tool.result");
+  expect(types).toContain("message.assistant");
+});
+
+test("team_propose_change:<field>=<value> reads the members, then proposes to the named one", async () => {
+  const { calls, run, scout } = await leadRoom();
+
+  const { summary } = await run(
+    "@maya team_propose_change:effort=high for @scout"
+  );
+
+  expect(summary.status).toBe("done");
+  expect(calls.map((call) => call.name)).toEqual([
+    "team_members",
+    "team_propose_change",
+  ]);
+  expect(calls[1]?.args).toMatchObject({
+    agentId: scout.id,
+    field: "effort",
+    value: "high for @scout",
+  });
+});
+
+test("a lead's room run without a marker still echoes", async () => {
+  const { calls, run } = await leadRoom();
+
+  const { summary } = await run("hello");
+
+  expect(summary.resultText).toBe("Echo: hello");
+  expect(calls).toEqual([]);
+});
+
+test("a marker outside a lead's room run echoes and calls no team tool", async () => {
+  const { calls } = await leadRoom();
+  const agent = await agents.create(user, {
+    model: "m",
+    name: "Ada",
+    runtime: "fake",
+  });
+
+  const { summary } = await runAs(user, agent.id, "assign:@scout");
+
+  expect(summary.resultText).toBe("Echo: assign:@scout");
+  expect(calls).toEqual([]);
+});
+
+test("markers in the earlier posts after the wake tail do not trigger the lead", async () => {
+  const { calls, run } = await leadRoom();
+
+  const { summary } = await run(
+    "hello\n\nYour final answer is your reply. Earlier: assign:@scout"
+  );
+
+  expect(summary.resultText).toContain("Echo: hello");
+  expect(calls).toEqual([]);
 });

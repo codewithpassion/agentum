@@ -18,7 +18,6 @@ import {
 import { compose } from "./server/compose.ts";
 import { frameGuard } from "./server/frame-guard.ts";
 import { setInProcessDispatch } from "./server/in-process.ts";
-import { legacyHost } from "./server/legacy-host.ts";
 import { guestEmbeds } from "./server/live-artifacts/guest-embeds";
 import { guestRoutes } from "./server/live-artifacts/guest-routes";
 import {
@@ -28,6 +27,7 @@ import {
 import { liveExportRoutes } from "./server/live-exports/routes";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
+import { newsletterRoutes } from "./server/newsletter/routes.ts";
 import installAgentumScript from "./server/releases/install-agentum.sh?raw";
 import { mountA2aRoutes } from "./server/routes/a2a.ts";
 import { mountA2aWebhooks } from "./server/routes/a2a-webhooks.ts";
@@ -66,10 +66,6 @@ export { SessionStream } from "./server/session-stream.ts";
 
 const app = new Hono<AppEnv>();
 
-// A page load on an old hostname (LEGACY_HOSTS) moves to PUBLIC_BASE_URL. First,
-// so the redirect happens before anything else runs.
-app.use("*", legacyHost);
-
 // No page the app serves may be framed (R1.21a). Artifact content sets its own.
 app.use("*", frameGuard);
 
@@ -107,6 +103,10 @@ mountReleaseRoutes(app, {
   bucket: (env) => env.FILES,
   scripts: { agentum: installAgentumScript },
 });
+
+// The landing page's newsletter form (`POST /api/newsletter/subscribe`). Public,
+// so before Clerk: it needs no session and no services.
+app.route("/", newsletterRoutes());
 
 app.route(
   "/",

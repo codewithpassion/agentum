@@ -1752,7 +1752,8 @@ test("an unknown Slack user posts as a named guest and wakes nobody", async () =
     {
       authorId: `slack:T0TEAM:${STRANGER}`,
       authorKind: "user",
-      text: "Newcomer (Slack guest): @ada please help",
+      guestName: "Newcomer",
+      text: "@ada please help",
     },
   ]);
   expect(allRuns()).toEqual([]);
@@ -1874,12 +1875,45 @@ test("a Slack Connect user from another organisation is not linked by email", as
   expect(roomPosts()).toMatchObject([
     {
       authorId: "slack:T0TEAM:U0NEW",
-      text: "Newcomer (Slack guest): hi from outside",
+      guestName: "Newcomer",
+      text: "hi from outside",
     },
   ]);
   expect(allRuns()).toEqual([]);
   expect(db.select().from(identityLinks).all()).toHaveLength(1);
   expect(roomEphemerals()).toEqual([]);
+});
+
+test("a Slack Connect user who mentions an app outside the linked channel is not linked and gets no reply, and posts as a guest in the room", async () => {
+  await setupRoom();
+  await addNewcomerToTeam();
+  slackUserTeam = "T0OTHER";
+
+  const mention = await fixture("mention");
+  mention.event.user = "U0NEW";
+  const response = await send(mention);
+  await runAfterJobs();
+
+  expect(response.status).toBe(OK);
+  expect(allRuns()).toEqual([]);
+  expect(eventTypes()).toEqual(["slack.unlinked_sender"]);
+  expect(db.select().from(identityLinks).all()).toHaveLength(1);
+  expect(
+    slackCalls.filter((call) => call.method === "chat.postMessage")
+  ).toEqual([]);
+
+  await sendToAllApps({
+    text: "hi from outside",
+    ts: ROOM_FIRST_TS,
+    user: "U0NEW",
+  });
+  await runAfterJobs();
+
+  expect(roomPosts()).toMatchObject([
+    { authorId: "slack:T0TEAM:U0NEW", guestName: "Newcomer" },
+  ]);
+  expect(allRuns()).toEqual([]);
+  expect(db.select().from(identityLinks).all()).toHaveLength(1);
 });
 
 test("a linked person who is not in the team posts as a guest", async () => {
@@ -1899,7 +1933,11 @@ test("a linked person who is not in the team posts as a guest", async () => {
   await runAfterJobs();
 
   expect(roomPosts()).toMatchObject([
-    { authorId: "slack:T0TEAM:U0OUT", text: "Newcomer (Slack guest): hello" },
+    {
+      authorId: "slack:T0TEAM:U0OUT",
+      guestName: "Newcomer",
+      text: "hello",
+    },
   ]);
   expect(allRuns()).toEqual([]);
 });

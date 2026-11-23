@@ -1,5 +1,6 @@
 import {
   type ChangeEvent,
+  type FocusEvent,
   type FormEvent,
   type KeyboardEvent,
   type MouseEvent,
@@ -11,9 +12,15 @@ import {
   useRef,
   useState,
 } from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { SendHint } from "#/components/composer/send-hint";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
 import { StickyComposer } from "#/components/composer/sticky-composer";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import { canSend } from "#/components/inbox/inbox-logic";
 import { Button } from "#/components/ui/button";
 import { Label } from "#/components/ui/label";
@@ -94,6 +101,19 @@ export function MentionComposer({
   const [pendingCaret, setPendingCaret] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
+
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled: sending,
+    getValue: () => text,
+    inputRef,
+    setValue: (value) => {
+      setText(value);
+      setToken(null);
+    },
+  });
+  const busy = sending || dictation.busy;
 
   const options = useMemo(
     () => (token === null ? [] : mentionOptions(token.query, members)),
@@ -198,10 +218,18 @@ export function MentionComposer({
 
   const handleBlur = useCallback(() => setToken(null), []);
 
+  const handleFormFocus = useCallback(() => setFocused(true), []);
+  // Focus moving to the Send or dictation button keeps the form open.
+  const handleFormBlur = useCallback((event: FocusEvent<HTMLFormElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      setFocused(false);
+    }
+  }, []);
+
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!canSend(text, sending)) {
+      if (!canSend(text, busy)) {
         return;
       }
       setSending(true);
@@ -217,16 +245,26 @@ export function MentionComposer({
         setSending(false);
       }
     },
-    [text, sending, threadId, onSent]
+    [text, busy, threadId, onSent]
   );
+
+  // On a phone the composer is one line until it has focus, text or an error.
+  const expanded = focused || text !== "" || busy || error !== null;
+  const phoneHidden = expanded ? null : "max-md:hidden";
 
   return (
     <StickyComposer background="bg-background">
+      {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: Focus bubbles up from the fields, so the form only watches it to open and close. */}
       <form
         className="flex flex-col gap-2 md:border-t md:pt-4"
+        data-expanded={expanded}
+        onBlur={handleFormBlur}
+        onFocus={handleFormFocus}
         onSubmit={handleSubmit}
       >
-        <Label htmlFor={textId}>Message</Label>
+        <Label className={cn(!expanded && "max-md:sr-only")} htmlFor={textId}>
+          Message
+        </Label>
         <div className="relative">
           {listOpen ? (
             <div
@@ -254,6 +292,7 @@ export function MentionComposer({
             aria-controls={listOpen ? listId : undefined}
             aria-describedby={hintId}
             aria-expanded={listOpen}
+            className={cn(!expanded && "max-md:min-h-10")}
             id={textId}
             onBlur={handleBlur}
             onChange={handleChange}
@@ -261,19 +300,27 @@ export function MentionComposer({
             onKeyDown={handleKeyDown}
             onKeyUp={handleKeyUp}
             onSelect={handleSelect}
+            readOnly={dictation.busy}
             ref={inputRef}
             role="combobox"
             value={text}
           />
+          <DictationPreview dictation={dictation} />
         </div>
-        <p className="text-muted-foreground text-xs" id={hintId}>
+        <p
+          className={cn("text-muted-foreground text-xs", phoneHidden)}
+          id={hintId}
+        >
           Type @ to mention an agent or a teammate. An agent you mention starts
           a task.
         </p>
-        <div className="flex items-center gap-2">
-          <Button disabled={!canSend(text, sending)} type="submit">
+        <div className={cn("flex items-center gap-2", phoneHidden)}>
+          <Button disabled={!canSend(text, busy)} type="submit">
             Send
           </Button>
+          <div className="max-md:[&_button]:size-11">
+            <DictationButton dictation={dictation} />
+          </div>
           <SendHint />
         </div>
         {error === null ? null : (

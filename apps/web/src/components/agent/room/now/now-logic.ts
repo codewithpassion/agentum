@@ -25,14 +25,22 @@ const WORKING: readonly TaskListItem["status"][] = ["running", "waiting"];
 
 /**
  * The task the agent is on: the newest one that is running or waiting, else
- * the newest that is queued. A helper is part of its parent's task, so it
+ * the oldest open one in the newest session that has one, because runs start
+ * in order and a newer queued run is only a reply waiting behind it, while a
+ * stale queued run in an old session (an offline machine) must not hold the
+ * panel. A helper is part of its parent's task, so it
  * never counts. `tasks.list` returns newest first.
  */
 export const activeRun = (
   tasks: readonly TaskListItem[]
 ): TaskListItem | null => {
   const open = tasks.filter((task) => !task.helper && isActive(task.status));
-  return open.find((task) => WORKING.includes(task.status)) ?? open[0] ?? null;
+  const working = open.find((task) => WORKING.includes(task.status));
+  if (working) {
+    return working;
+  }
+  const newestSession = open[0]?.sessionId;
+  return open.findLast((task) => task.sessionId === newestSession) ?? null;
 };
 
 const startOfLocalDay = (ms: number): number => {

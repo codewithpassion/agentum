@@ -6,6 +6,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { EntryRecord } from "@earendil-works/pi-durable";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
 import type { ContextBudget, EffortLevel, RunStatus } from "@repo/db/shared";
@@ -22,6 +23,7 @@ import type {
   RunResult,
   RuntimeAdapter,
 } from "@repo/services/runs/types";
+import { createSpendService } from "@repo/services/spend";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { eq } from "drizzle-orm";
 import {
@@ -715,6 +717,137 @@ describe("two runs in one session", () => {
   });
 });
 
+describe("steer", () => {
+  test("a steer into a busy active run submits with whenBusy steer, and the run reports what follows", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1", "first"));
+    await h.fake.say("working");
+    const taken = await h.core.steer("run-1", {
+      operationId: "steer-1",
+      text: "use the other file",
+    });
+    expect(taken).toBe(true);
+    expect(h.fake.submitted.at(-1)).toMatchObject({
+      operationId: "steer-1",
+      text: "use the other file",
+      whenBusy: "steer",
+    });
+    await h.fake.say("later");
+    h.fake.finish("run-1", { status: "done" });
+    h.fake.finish("steer-1", { status: "done" });
+    await settle();
+
+    expect(sentFor(h, "run-1").map((e) => e.payload)).toEqual([
+      { text: "working" },
+      { text: "later" },
+    ]);
+    expect(h.completed.map((c) => [c.runId, c.result.text])).toEqual([
+      ["run-1", "later"],
+    ]);
+  });
+
+  test("a steer that Pi answers after the run's own input waits to be reported before the run completes", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1", "first"));
+    await h.fake.say("working");
+    await h.core.steer("run-1", {
+      operationId: "steer-1",
+      text: "one more thing",
+    });
+    // The steer reached Pi's final boundary: the run's input is answered, the steer starts a turn of its own.
+    h.fake.finish("run-1", { status: "done" });
+    await settle();
+    expect(h.completed).toEqual([]);
+
+    await h.fake.say("answer to the steer");
+    h.fake.finish("steer-1", { status: "done" });
+    await settle();
+
+    expect(sentFor(h, "run-1").map((e) => e.payload)).toEqual([
+      { text: "working" },
+      { text: "answer to the steer" },
+    ]);
+    expect(h.completed.map((c) => [c.runId, c.result.text])).toEqual([
+      ["run-1", "answer to the steer"],
+    ]);
+  });
+
+  test("stopping a run also stops the turns of its steers", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1", "first"));
+    await h.fake.say("working");
+    await h.core.steer("run-1", { operationId: "steer-1", text: "and this" });
+
+    await h.core.cancel("run-1");
+
+    expect(h.fake.aborted).toEqual(["run-1", "steer-1"]);
+  });
+
+  test("a steer is refused, and nothing is submitted, once the run's work stopped waiting for steers", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const h = build({
+      inputOf: (_run, text) =>
+        text === "too late" ? gate.then(() => text) : Promise.resolve(text),
+    });
+    await h.core.start(startOf("run-1", "first"));
+    await h.fake.say("working");
+    const late = h.core.steer("run-1", {
+      operationId: "steer-1",
+      text: "too late",
+    });
+    // The run ends while the steer's input is still being built.
+    h.fake.finish("run-1", { status: "done" });
+    await settle();
+    expect(h.completed).toHaveLength(1);
+    release();
+
+    expect(await late).toBe(false);
+    expect(h.fake.submitted.map((entry) => entry.operationId)).toEqual([
+      "run-1",
+    ]);
+  });
+
+  test("a steer to an unknown run or a finished run returns false and submits nothing", async () => {
+    const h = build();
+    expect(
+      await h.core.steer("run-unknown", { operationId: "steer-x", text: "hi" })
+    ).toBe(false);
+
+    await h.core.start(startOf("run-1", "first"));
+    await h.fake.say("working");
+    h.fake.finish("run-1", { status: "done", text: "working" });
+    await settle();
+    expect(h.completed).toHaveLength(1);
+
+    const before = h.fake.submitted.length;
+    expect(
+      await h.core.steer("run-1", { operationId: "steer-1", text: "late" })
+    ).toBe(false);
+    expect(h.fake.submitted).toHaveLength(before);
+  });
+
+  test("a steer while Pi is idle returns false and submits nothing", async () => {
+    // The platform refuses the completion, so the run stays active after Pi goes idle.
+    const h = build({
+      complete: () => Promise.reject(new Error("platform unreachable")),
+    });
+    await h.core.start(startOf("run-1", "first"));
+    await h.fake.say("working");
+    h.fake.finish("run-1", { status: "done", text: "working" });
+    await settle();
+    expect(h.storage.data.get("run:run-1")).toMatchObject({ state: "active" });
+
+    const before = h.fake.submitted.length;
+    expect(
+      await h.core.steer("run-1", { operationId: "steer-1", text: "late" })
+    ).toBe(false);
+    expect(h.fake.submitted).toHaveLength(before);
+  });
+});
+
 describe("serial flush", () => {
   test("a burst of commits never has two writes in flight, and no seq is sent twice", async () => {
     const h = build();
@@ -832,15 +965,57 @@ describe("a model that cannot run", () => {
 
 describe("cancel", () => {
   test("aborts the operation and treats the platform's refusal as the end", async () => {
+    const refused: string[] = [];
+    const gate: { cancelled: boolean } = { cancelled: false };
     const h = build({
-      complete: () => Promise.reject(conflict()),
+      abortLikePi: { parallelCall: false },
+      complete: (runId) => {
+        refused.push(runId);
+        return Promise.reject(conflict());
+      },
+      ingest: () =>
+        gate.cancelled ? Promise.reject(conflict()) : Promise.resolve(),
     });
     await h.core.start(startOf("run-1"));
+    await h.fake.say("working");
+    gate.cancelled = true;
     await h.core.cancel("run-1");
     await settle();
 
-    expect(h.fake.aborted).toEqual(["run-1"]);
+    expect(h.fake.aborted).toContain("run-1");
+    // The usage report was tried once, and its refusal ended the run.
+    expect(refused).toEqual(["run-1"]);
     expect(h.completed).toEqual([]);
+    expect(await h.storage.get("run:run-1")).toMatchObject({
+      state: "finished",
+    });
+  });
+
+  test("a cancelled run sends one completion with the usage of its turns and the aborted turn", async () => {
+    const gate: { cancelled: boolean } = { cancelled: false };
+    const h = build({
+      abortLikePi: { parallelCall: false },
+      ingest: () =>
+        gate.cancelled ? Promise.reject(conflict()) : Promise.resolve(),
+    });
+    await h.core.start(startOf("run-1"));
+    await h.fake.say("one");
+    await h.fake.say("two");
+    gate.cancelled = true;
+    await h.core.cancel("run-1");
+    await settle();
+
+    expect(h.completed).toHaveLength(1);
+    expect(h.completed[0]?.result).toEqual({
+      status: "failed",
+      usage: {
+        costUsd: 1.5,
+        inputTokens: 30,
+        model: "test-model",
+        outputTokens: 12,
+        provider: "anthropic",
+      },
+    });
     expect(await h.storage.get("run:run-1")).toMatchObject({
       state: "finished",
     });
@@ -868,7 +1043,11 @@ describe("cancel", () => {
     await settle();
 
     expect(h.fake.aborted).toEqual(["run-1"]);
-    expect(h.completed).toEqual([]);
+    expect(h.completed).toHaveLength(1);
+    expect(h.completed[0]?.result).toMatchObject({
+      status: "failed",
+      usage: { costUsd: 0.5 },
+    });
     expect(await h.storage.get("run:run-1")).toMatchObject({
       state: "finished",
     });
@@ -1877,6 +2056,119 @@ describe("a run that waits on a person, on the real services", () => {
       "run.waiting",
       "run.resumed",
     ]);
+  });
+});
+
+describe("a cancelled cloud run, on the real services", () => {
+  test("keeps the cost of its turns and the aborted one, and pauses the agent over its cap", async () => {
+    const db = migrated();
+    const now = Date.parse("2026-10-26T00:00:00Z");
+    await db.insert(workspaces).values({
+      clerkOrgId: "org1",
+      createdAt: new Date(now).toISOString(),
+      id: "w1",
+      name: "Test",
+      timezone: "UTC",
+    });
+    const clock = {
+      now: () => new Date(now),
+      sleep: () => Promise.resolve(),
+    };
+    const blobs = {
+      get: () => Promise.resolve(null),
+      put: () => Promise.resolve(),
+    };
+    const user = {
+      kind: "user",
+      userId: "u1",
+      via: "session",
+      workspaceId: "w1",
+    } as const;
+    const events = createEventsService({ blobs, db });
+    const cancelled: string[] = [];
+    let core: ReturnType<typeof createRunCore> | undefined;
+    const adapter: RuntimeAdapter = {
+      cancel: async (_db, run) => {
+        cancelled.push(run.id);
+        await core?.cancel(run.id);
+      },
+      dispatch: () => Promise.resolve(),
+      kind: "cloud",
+      resume: () => Promise.resolve(),
+    };
+    const runs = createRunsService({
+      adapters: [adapter],
+      atomic: sqliteAtomic(db),
+      blobs,
+      clock,
+      db,
+      devFakeRuntime: false,
+      gateways: [],
+      spend: createSpendService({ atomic: sqliteAtomic(db), clock, db }),
+    });
+    const agent = await createAgentsService({ db, events }).create(user, {
+      model: "claude-test",
+      name: "Cloud",
+      runtime: "cloud",
+    });
+    await db
+      .update(agentRows)
+      .set({ weeklyCapCents: 100 })
+      .where(eq(agentRows.id, agent.id));
+    const { runId } = await runs.startRun(user, {
+      agentId: agent.id,
+      input: { text: "go" },
+      session: { origin: "ui" },
+    });
+    await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+
+    const statusOf = async (id: string): Promise<RunStatus> => {
+      const [row] = await db.select().from(runRows).where(eq(runRows.id, id));
+      if (!row) {
+        throw new Error(`run ${id} is missing`);
+      }
+      return row.status;
+    };
+    const fake = createFakePi({ abortLikePi: { parallelCall: false } });
+    core = createRunCore({
+      checkpointLibrary: () => Promise.resolve(),
+      complete: (id, result) => runs.completeRun(SYSTEM_PRINCIPAL, id, result),
+      heartbeat: (id) => runs.heartbeatRun(SYSTEM_PRINCIPAL, id),
+      ingest: (id, batch) => runs.ingestRunEvents(SYSTEM_PRINCIPAL, id, batch),
+      inputOf: (_run, text) => Promise.resolve(text),
+      installSkills: () => Promise.resolve(),
+      installTools: () => Promise.resolve(),
+      modelError: () => undefined,
+      pi: fake.pi,
+      sleep: () => Promise.resolve(),
+      statusOf,
+      storage: memoryStorage(),
+    });
+    const input = startOf(runId);
+    await core.start({
+      ...input,
+      agent: { ...input.agent, id: agent.id },
+      run: { ...input.run, agentId: agent.id, workspaceId: "w1" },
+    });
+    // Three turns at $0.50 each, then the aborted turn: $2 in all.
+    await fake.say("one");
+    await fake.say("two");
+    await fake.say("three");
+    await settle();
+
+    await runs.cancelRun(user, runId);
+    await settle();
+
+    const [row] = await db.select().from(runRows).where(eq(runRows.id, runId));
+    expect(cancelled).toEqual([runId]);
+    expect(row?.status).toBe("cancelled");
+    expect(JSON.parse(row?.usage ?? "{}")).toMatchObject({ costUsd: 2 });
+    const [paused] = await db
+      .select()
+      .from(agentRows)
+      .where(eq(agentRows.id, agent.id));
+    expect(paused?.pausedReason).toBe("spend_cap");
+    expect(paused?.pausedAt).not.toBeNull();
   });
 });
 

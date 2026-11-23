@@ -3,7 +3,7 @@ id: TX.7
 title: "Team extras walkthrough"
 milestone: TX
 size: S
-status: in_progress
+status: done
 depends_on: [TX.3, TX.5, TX.6]
 branch: task/TX.7-team-extras-e2e
 lane: e2e
@@ -27,3 +27,5 @@ From `docs/v4/build-plan.md`, milestone TX. End-to-end check for TX.
 - 2026-11-21: dispatched.
 - 2026-11-21: dispatcher stopped at the account monthly spend limit (HTTP 429). Work is saved in its worktree. Resume the same dispatcher after the limit resets on Nov 25.
 - 2026-11-21: spend limit reset, same dispatcher resumed.
+- 2026-11-21: ready at 05edee87, review clean. Browser proof: every flow passed at both sizes; the only console errors were database-locked 500s caused by the walkthrough's own scripts holding the local DB file, and a control run was clean (same ruling as TM.10). Controller accepts.
+- 2026-11-21: merged 489bd1ca, merge check passed. Done.

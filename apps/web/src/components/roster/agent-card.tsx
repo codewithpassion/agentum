@@ -16,6 +16,9 @@ const ACCENT_CLASSES: Readonly<Partial<Record<AgentCard["state"], string>>> = {
   stopped: "border-l-4 border-l-destructive",
 };
 
+/** The size an agent card shares with the add tiles, so every tile in the wall matches. */
+export const CARD_SIZE_CLASS = "h-full min-h-44";
+
 /** One agent on the Roster home. The whole card opens the agent. */
 export const AgentCardView = ({
   card,
@@ -29,6 +32,7 @@ export const AgentCardView = ({
   return (
     <Link
       className={cn(
+        CARD_SIZE_CLASS,
         "flex min-w-0 gap-3 rounded-xl border border-border bg-card p-4 text-card-foreground no-underline hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-foreground focus-visible:outline-offset-2",
         ACCENT_CLASSES[card.state]
       )}

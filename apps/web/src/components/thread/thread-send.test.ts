@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 import type { ThreadMessage, ThreadStatus } from "@repo/protocol/thread";
 import {
+  busyNote,
   fileIdsOfAppend,
   isActiveStatus,
   latestUserMessage,
   replyBody,
   replyNote,
+  sendWhileWorkingBody,
   startRunBody,
   textOfAppend,
 } from "./thread-send.ts";
@@ -173,4 +175,42 @@ test("a sub-thread replies here whatever its origin, and sends by session id", (
     requestId: "req-1",
     sessionId: "sess-9",
   });
+});
+
+test("busyNote names how each runtime takes a message while a task works", () => {
+  expect(busyNote("cloud")).toBe("The agent reads this as it works.");
+  for (const runtime of ["machine", "managed", "fake"] as const) {
+    expect(busyNote(runtime)).toBe(
+      "The agent gets this when the current step ends."
+    );
+  }
+});
+
+test("sendWhileWorkingBody names the working run and carries no session", () => {
+  expect(
+    sendWhileWorkingBody({
+      fileIds: ["f1"],
+      requestId: "r1",
+      runId: "run-1",
+      text: "hi",
+    })
+  ).toEqual({
+    input: { fileIds: ["f1"], text: "hi" },
+    requestId: "r1",
+    runId: "run-1",
+  });
+});
+
+test("latestUserMessage skips a message steered into a working task", () => {
+  const user = (id: string, steered?: true): ThreadMessage => ({
+    createdAt: null,
+    id,
+    parts: [],
+    role: "user",
+    runId: "run-1",
+    status: "done",
+    ...(steered ? { steered } : {}),
+  });
+  expect(latestUserMessage([user("a"), user("b", true)])).toBe("a");
+  expect(latestUserMessage([user("b", true)])).toBeNull();
 });

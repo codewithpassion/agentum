@@ -32,10 +32,14 @@ export interface ThreadEnv {
   outsideLabels?: ReadonlyMap<string, string>;
   /** Set when the thread can save notes to the agent's memory. */
   remember?: { agentId: string; sessionId: string };
+  /** Removes a waiting message: cancels its run before it starts. */
+  removeWaiting?: (runId: string) => void;
   requests: ReadonlyMap<string, RequestView>;
   requestTimes?: ReadonlyMap<string, string>;
   runMarkers?: ReadonlyMap<string, { runId: string; label: string }>;
   viewedMessageIds?: ReadonlySet<string>;
+  /** Messages sent while a task works that wait for their turn, by message id, with the run that will carry each. */
+  waiting?: ReadonlyMap<string, string>;
 }
 
 const ThreadEnvContext = createContext<ThreadEnv | null>(null);

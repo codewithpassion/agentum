@@ -49,4 +49,15 @@ export interface CloudRunnerPort {
   libraryChanged?: (sessionId: string, paths: string[]) => Promise<void>;
   /** Starts working the run. Idempotent on `run.id`: a repeat start does nothing. */
   start: (input: CloudStart) => Promise<void>;
+  /**
+   * Hands a message to the work in progress on a running run (Pi's `steer`).
+   * Resolves to true when the session took it, false when it did not (the run
+   * is not active here, or the session is idle), so the caller queues it
+   * instead. Idempotent on `operationId`.
+   */
+  steer?: (
+    runId: string,
+    sessionId: string,
+    message: { operationId: string; text: string }
+  ) => Promise<boolean>;
 }

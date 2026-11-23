@@ -33,6 +33,11 @@ export const dreamRouter = router({
     .query(({ ctx, input }) =>
       ctx.services.dream.list(ctx.principal, input.agentId)
     ),
+  listTeam: workspaceProcedure
+    .input(dreamTeamInputSchema)
+    .query(({ ctx, input }) =>
+      ctx.services.dream.listTeam(ctx.principal, input.teamId)
+    ),
   runNow: workspaceProcedure
     .input(dreamAgentInputSchema)
     .mutation(({ ctx, input }) =>

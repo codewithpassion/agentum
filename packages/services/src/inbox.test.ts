@@ -2,6 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import {
+  inboxPosts as inboxPostRows,
   inboxThreadMembers as inboxThreadMemberRows,
   inboxThreads as inboxThreadRows,
 } from "@repo/db/schema/inbox";
@@ -844,6 +845,23 @@ test("a limited topic is hidden from everyone who is not in it", async () => {
   expect(runsOf("beta")).toEqual([]);
 });
 
+test("readThread says who a limited topic is limited to, and nobody for an open one", async () => {
+  build({ script: { alpha: null } });
+  await addAgents("alpha");
+  const teamId = seedTeam({
+    members: { agents: ["alpha"], users: ["u1", "u2"] },
+  });
+  const limited = await topicIn(teamId, ["u1"]);
+  const open = await topicIn(teamId);
+
+  expect(
+    (await inbox.readThread(user, { threadId: limited })).limitedTo
+  ).toEqual([{ id: "u1", kind: "user" }]);
+  expect((await inbox.readThread(user, { threadId: open })).limitedTo).toEqual(
+    []
+  );
+});
+
 test("a limited topic's member agent is woken and can read it", async () => {
   build({ script: { alpha: null } });
   await addAgents("alpha");
@@ -1566,6 +1584,47 @@ test("postExternal refuses an archived team", async () => {
     })
   ).rejects.toThrow("Team not found");
   expect(db.select().from(inboxThreadRows).all()).toHaveLength(0);
+});
+
+test("postExternal stores a guest's name beside the text, and nothing for a member", async () => {
+  build();
+  const teamId = seedTeam({ members: { users: ["u1"] } });
+  const input = {
+    alongside: () => [],
+    teamId,
+    thread: { kind: "new", title: "Slack" } as const,
+    waker: null,
+    workspaceId: WORKSPACE,
+  };
+
+  const guest = await inbox.postExternal({
+    ...input,
+    authorId: "slack:T1:U9",
+    guestName: "Priya",
+    text: "can we move the call?",
+  });
+  const member = await inbox.postExternal({
+    ...input,
+    authorId: "u1",
+    text: "yes",
+  });
+
+  const stored = db
+    .select({
+      guestName: inboxPostRows.guestName,
+      id: inboxPostRows.id,
+      text: inboxPostRows.text,
+    })
+    .from(inboxPostRows)
+    .all();
+  expect(stored).toEqual(
+    expect.arrayContaining([
+      { guestName: "Priya", id: guest.postId, text: "can we move the call?" },
+      { guestName: null, id: member.postId, text: "yes" },
+    ])
+  );
+  const view = await inbox.readThread(user, { threadId: guest.threadId });
+  expect(view.posts.map((post) => post.guestName)).toEqual(["Priya"]);
 });
 
 test("a discussion running when the team is archived starts no more runs", async () => {

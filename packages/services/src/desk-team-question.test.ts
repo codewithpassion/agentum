@@ -357,3 +357,27 @@ test("an agent question still goes to its agent and shows to its owner", async (
     needsYouKind: "dream_question",
   });
 });
+
+test("a team question card carries the team's name and an agent question does not", async () => {
+  await seedTeamQuestion();
+  await insertAgentRun();
+  await db.insert(dreamQuestions).values({
+    agentId: a1,
+    createdAt: new Date(NOW).toISOString(),
+    dreamRunId: AGENT_RUN,
+    id: "q-agent",
+    options: storeOptions(DREAM_OPTIONS, null),
+    question: "When is the deploy?",
+    status: "open",
+    workspaceId: "w1",
+  });
+
+  const cards = (await get()).needsYou;
+
+  expect(cards.find((card) => card.id === QUESTION)?.dream?.teamName).toBe(
+    "Crew"
+  );
+  expect(cards.find((card) => card.id === "q-agent")?.dream).not.toHaveProperty(
+    "teamName"
+  );
+});

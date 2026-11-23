@@ -3,7 +3,7 @@ id: TM.16
 title: "Phone room layout"
 milestone: TM
 size: S
-status: todo
+status: done
 depends_on: [TM.15]
 branch: null
 lane: web-room
@@ -20,3 +20,7 @@ Check. Browser at 390x844.
 
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
+- 2026-11-22: back in scope on Dom's call (all deferred tasks except the flaky-test fixes).
+- 2026-11-22: dispatched.
+- 2026-11-22: merged at b31bb3c8, review clean after 0 fix rounds. Browser check at 390x844 moved to the end pass.

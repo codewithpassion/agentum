@@ -774,12 +774,7 @@
 }
 
 @media (min-width: 640px) {
-  .df-news-form {
-    grid-template-columns: 1fr 1fr;
-  }
-
   .df-news-form .df-cta {
-    grid-column: 1 / -1;
     justify-self: center;
   }
 }

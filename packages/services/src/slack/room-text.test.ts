@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import {
   convertAgentMentions,
-  guestPostText,
+  guestName,
+  readSlackMarkup,
   slackMentionedUserIds,
   TOPIC_TITLE_MAX,
   topicTitle,
@@ -110,24 +111,49 @@ test("convertAgentMentions leaves text alone when nothing is mapped", () => {
   );
 });
 
-test("guestPostText labels the post with the guest name", () => {
-  expect(guestPostText("Ann Lee", "hello")).toBe(
-    "Ann Lee (Slack guest): hello"
+test("guestName collapses and trims the guest name", () => {
+  expect(guestName("  Ann \n  Lee  ")).toBe("Ann Lee");
+});
+
+test("guestName cuts a long guest name to 80 characters", () => {
+  expect(guestName("n".repeat(100))).toBe("n".repeat(80));
+});
+
+test("guestName falls back to Someone for an empty name", () => {
+  expect(guestName("   ")).toBe("Someone");
+  expect(guestName("")).toBe("Someone");
+});
+
+test("readSlackMarkup names users and channels from the markup or the lookup", () => {
+  const names = {
+    channels: new Map([["C2", "ops"]]),
+    users: new Map([["U1", "Ada"]]),
+  };
+  expect(
+    readSlackMarkup("hi <@U1> and <@U9|bob> in <#C2> and <#C3|dev>", names)
+  ).toBe("hi @Ada and @bob in #ops and #dev");
+  expect(readSlackMarkup("<@U7>")).toBe("@U7");
+});
+
+test("readSlackMarkup reads links and broadcasts", () => {
+  expect(
+    readSlackMarkup(
+      "<https://x.io|the site> <https://y.io> <mailto:a@b.co|a@b.co>"
+    )
+  ).toBe("[the site](https://x.io) https://y.io a@b.co");
+  expect(readSlackMarkup("<!here> <!subteam^S1|@eng> <!date^1|Jan 1>")).toBe(
+    "@here @eng Jan 1"
   );
 });
 
-test("guestPostText collapses and trims the guest name", () => {
-  expect(guestPostText("  Ann \n  Lee  ", "hi")).toBe(
-    "Ann Lee (Slack guest): hi"
-  );
+test("readSlackMarkup decodes entities outside the markup", () => {
+  expect(
+    readSlackMarkup("a &amp; b &lt;c&gt; <https://x.io?a=1&amp;b=2>")
+  ).toBe("a & b <c> https://x.io?a=1&b=2");
 });
 
-test("guestPostText cuts a long guest name to 80 characters", () => {
-  const label = guestPostText("n".repeat(100), "hi");
-  expect(label).toBe(`${"n".repeat(80)} (Slack guest): hi`);
-});
-
-test("guestPostText falls back to Someone for an empty name", () => {
-  expect(guestPostText("   ", "hi")).toBe("Someone (Slack guest): hi");
-  expect(guestPostText("", "hi")).toBe("Someone (Slack guest): hi");
+test("readSlackMarkup decodes entities inside links and labels", () => {
+  expect(
+    readSlackMarkup("<https://x.io?a=1&amp;b=2|a &amp; b> <@U1|a&amp;b>")
+  ).toBe("[a & b](https://x.io?a=1&b=2) @a&b");
 });

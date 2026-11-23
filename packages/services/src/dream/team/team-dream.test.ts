@@ -298,6 +298,40 @@ test("a note three members hold becomes one team note and the copies are forgott
   expect(run.diary).toContain("Pipeline numbers live in the Sales sheet");
 });
 
+test("a team's dreams and its notes are listed for the team page, apart from its members' dreams", async () => {
+  const w = makeTeamWorld(
+    answerFor((call) => ({
+      conflicts: [],
+      shared: call.prompt.includes("Pipeline")
+        ? [
+            {
+              confidence: 0.95,
+              ids: idsIn(call.prompt, "scout", "quill", "tally"),
+              text: "Pipeline numbers live in the Sales sheet",
+            },
+          ]
+        : [],
+    }))
+  );
+  expect(await w.dream.listTeam(person(USER_B), TEAM)).toEqual([]);
+  await note(w, SCOUT, "places", "Pipeline numbers live in the Sales sheet");
+  await note(w, QUILL, "places", "Pipeline numbers are in the Sales sheet");
+  await note(w, TALLY, "places", "Pipeline numbers: Sales sheet");
+  const first = await w.dream.runTeamNow(person(OWNER), TEAM);
+  const second = await w.dream.runTeamNow(person(OWNER), TEAM);
+  const listed = await w.dream.listTeam(person(USER_B), TEAM);
+  expect(listed.map((item) => item.id).sort()).toEqual(
+    [first.id, second.id].sort()
+  );
+  expect(listed.every((item) => item.teamId === TEAM)).toBe(true);
+  // Another team has none of them, and a team dream is not an agent's.
+  expect(await w.dream.listTeam(person(OWNER), BARE)).toEqual([]);
+  expect(await w.dream.list(person(OWNER), SCOUT)).toEqual([]);
+  expect((await teamNotes(w)).map((item) => item.text)).toEqual([
+    "Pipeline numbers live in the Sales sheet",
+  ]);
+});
+
 test("a fact two members hold is not lifted", async () => {
   const w = makeTeamWorld(
     answerFor((call) => ({
@@ -578,7 +612,7 @@ test("repeated hand-off rework asks the lead to propose a change; with no lead i
     .run();
   const run = await w.dream.runTeamNow(person(OWNER), TEAM);
   expect(run.diary).toContain(
-    "Hand-off: Tally re-formatted Quill's contact lists four times."
+    "Hand-off: Tally re-formatted Quill's contact lists four times. Asked the lead."
   );
   expect(w.notices.some((notice) => notice.text === run.diary)).toBe(false);
   const ask = defined(w.notices.find((notice) => notice.wake !== undefined));
@@ -618,7 +652,7 @@ test("repeated hand-off rework asks the lead to propose a change; with no lead i
   const before = w.notices.length;
   const bare = await w.dream.runTeamNow(person(OWNER), BARE);
   expect(bare.diary).toContain("Hand-off:");
-  expect(bare.diary).not.toContain("asked to propose");
+  expect(bare.diary).not.toContain("Asked the lead.");
   expect(
     w.notices.slice(before).filter((notice) => notice.wake !== undefined)
   ).toEqual([]);

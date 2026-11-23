@@ -1327,6 +1327,14 @@ export class PiRun extends DurableObject<Env> {
     await this.#runCore().cancel(runId);
   }
 
+  async steerRun(
+    runId: string,
+    message: { operationId: string; text: string }
+  ): Promise<boolean> {
+    await this.lifecycle.start();
+    return await this.#runCore().steer(runId, message);
+  }
+
   /**
    * A request of the run was closed (answered, expired). Wakes the call that
    * waits for it. An object that was evicted meanwhile has no waiter: its call

@@ -1,15 +1,41 @@
 import { Link } from "@tanstack/react-router";
 import { formatDistanceToNow } from "date-fns";
+import type { ReactNode } from "react";
 import { artifactHref } from "#/components/artifacts/list/artifacts-logic.ts";
 import { Markdown } from "#/components/markdown/markdown.tsx";
 import { FileChips } from "#/components/thread/file-chips.tsx";
 import { buttonVariants } from "#/components/ui/button.tsx";
 import type { FileInfo, InboxPost } from "#/integrations/trpc/types.ts";
 import { MemberAvatar } from "./member-avatar.tsx";
-import { guestOfPost } from "./room-logic.ts";
 import { memberKey, type RoomMember } from "./room-types.ts";
 
 const PILL_CLASS = `${buttonVariants({ size: "sm", variant: "outline" })} max-md:min-h-10`;
+
+const MARKDOWN_LINK = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+
+/** Shows `[label](url)` as a link. Nothing else in a person's text is markdown. */
+function PersonText({ text }: { text: string }) {
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(MARKDOWN_LINK)) {
+    const [whole = "", label = "", url = ""] = match;
+    parts.push(text.slice(last, match.index));
+    parts.push(
+      <a
+        className="underline underline-offset-2"
+        href={url}
+        key={match.index}
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        {label}
+      </a>
+    );
+    last = match.index + whole.length;
+  }
+  parts.push(text.slice(last));
+  return <>{parts}</>;
+}
 
 function AssignedLine({ assigned }: { assigned: readonly RoomMember[] }) {
   return (
@@ -40,15 +66,14 @@ export function RoomPost({
 }) {
   const hasLinks =
     post.runId !== null || post.artifacts.length > 0 || post.fileIds.length > 0;
-  const guest = guestOfPost(post);
   return (
     <li className="flex flex-col gap-2" id={`post-${post.id}`}>
       <div className="flex items-center gap-2">
         <MemberAvatar member={author} />
         <span className="font-medium text-sm">{authorLabel}</span>
-        {guest ? (
+        {post.guestName === null ? null : (
           <span className="text-muted-foreground text-xs">Slack guest</span>
-        ) : null}
+        )}
         <time
           className="text-muted-foreground text-xs"
           dateTime={post.createdAt}
@@ -62,7 +87,7 @@ export function RoomPost({
         </div>
       ) : (
         <p className="whitespace-pre-wrap text-foreground text-sm">
-          {guest ? guest.text : post.text}
+          <PersonText text={post.text} />
         </p>
       )}
       {assigned.length > 0 ? <AssignedLine assigned={assigned} /> : null}

@@ -537,6 +537,9 @@ export const createRailService = ({
               }
             : null,
           proposedBy,
+          ...(deskCard.dream?.teamName === undefined
+            ? {}
+            : { teamName: deskCard.dream.teamName }),
           title: deskCard.title,
           toolKey: record?.toolKey ?? null,
           toolName: record?.toolName ?? null,

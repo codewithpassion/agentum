@@ -5,8 +5,10 @@ import { libraryMemoryReader } from "../memory/prompt.ts";
 import { libraryTeamMemoryReader } from "../memory/team.ts";
 import { approvedDecision } from "../requests/outbound.ts";
 import type { RunTokenClaims } from "../run-tokens.ts";
+import { type LeadRoom, leadRoomOf } from "../teams/room-run.ts";
 import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { modelOfRun } from "./access-scope.ts";
+import { runLead, wantsLead } from "./fake-lead.ts";
 import {
   type ProxyAccess,
   runTool,
@@ -33,9 +35,9 @@ export interface FakeRuntimeOptions {
   }) => Promise<void>;
   /** Where the run's memory notes are read from. Without it, the reply carries no notes. */
   library?: Partial<Pick<LibraryService, "read">>;
-  /** How the tool mode reaches the connector proxy. Without it, a tool run fails. */
+  /** How the tool and lead modes reach the app (`/api/proxy`, `/mcp`). Without it, a tool run fails. */
   proxy?: ProxyAccess;
-  /** Mints the run token the tool mode sends to the proxy. Without it, a tool run fails. */
+  /** Mints the run token the tool and lead modes send. Without it, such a run fails. */
   signToken?: (claims: RunTokenClaims) => Promise<string>;
 }
 
@@ -125,7 +127,52 @@ const openAsk = async (
 };
 
 const NEEDS_PROXY =
-  "The fake tool mode needs the proxy's base URL (PUBLIC_BASE_URL) and RUN_TOKEN_KEY.";
+  "The fake tool and lead modes need the proxy's base URL (PUBLIC_BASE_URL) and RUN_TOKEN_KEY.";
+
+interface ProxiedRun {
+  agent: AgentRecord;
+  claimed: RunRecord;
+  db: Database;
+  deps: AdapterDeps;
+  proxy: FakeRuntimeOptions["proxy"];
+  /** The team room, for a lead's run; null for a tool run. */
+  room: LeadRoom | null;
+  signToken: FakeRuntimeOptions["signToken"];
+}
+
+/**
+ * The reply of a run that calls tools with its own run token: a lead's team
+ * tools through `/mcp`, or an app's tool through the connector proxy. Throws
+ * when the deployment gives no way to reach the app.
+ */
+const proxiedResult = async ({
+  agent,
+  claimed,
+  db,
+  deps,
+  proxy,
+  room,
+  signToken,
+}: ProxiedRun): Promise<ToolRunResult> => {
+  if (!(proxy && signToken)) {
+    throw new Error(NEEDS_PROXY);
+  }
+  const runToken = await signToken({
+    agentId: claimed.agentId,
+    issuedAt: deps.clock.now().getTime(),
+    runId: claimed.id,
+    workspaceId: claimed.workspaceId,
+  });
+  const text = claimed.inputText;
+  return room
+    ? await runLead({ proxy, runToken, text, threadId: room.threadId })
+    : await runTool({
+        connectors: (await buildLaunchContext(db, claimed, agent)).connectors,
+        proxy,
+        runToken,
+        text,
+      });
+};
 
 /**
  * Answers every run with an echo of its input, so the lanes can test against a
@@ -137,6 +184,12 @@ const NEEDS_PROXY =
  * calls one tool of the agent's first app through the connector proxy with a
  * real run token and answers with what came back, so a person can watch an
  * agent use an app without a machine.
+ *
+ * A lead's room run with an `assign:handle` or
+ * `team_propose_change:<field>=<value>` marker in the post calls its team tools
+ * (`team_post`, `team_propose_change`) through the app's `/mcp` route with its
+ * own run token, so the route's team-room tool filter applies. A person can
+ * watch a lead assign and propose without a model.
  *
  * A run with an `ask:<tool>` marker in its text opens an approval request for
  * that tool and waits. The answer closes the request, and `resume` then ends
@@ -157,42 +210,36 @@ export const createFakeRuntime = ({
       await openAsk(deps, run, askedTool, askApproval);
       return;
     }
-    const toolMode = wantsTool(modelOfRun(claimed, agent), input);
-    // A tool run answers with the tool's result, so it does not list notes.
-    const notes = toolMode
-      ? ""
-      : await memoryNotesOf(db, claimed, agent, library);
-    let result: ToolRunResult = {
-      events: [],
-      text: `Echo: ${input}${notes}`,
-    };
-    if (toolMode) {
-      try {
-        if (!(proxy && signToken)) {
-          throw new Error(NEEDS_PROXY);
-        }
-        result = await runTool({
-          connectors: (await buildLaunchContext(db, claimed, agent)).connectors,
-          proxy,
-          runToken: await signToken({
-            agentId: claimed.agentId,
-            issuedAt: deps.clock.now().getTime(),
-            runId: claimed.id,
-            workspaceId: claimed.workspaceId,
-          }),
-          text: input,
-        });
-      } catch (error) {
-        await deps.completeRun(SYSTEM_PRINCIPAL, run.id, {
-          error: error instanceof Error ? error.message : String(error),
-          status: "failed",
-        });
-        return;
-      }
+    const room = wantsLead(input) ? await leadRoomOf(db, claimed) : null;
+    const toolMode = !room && wantsTool(modelOfRun(claimed, agent), input);
+    let result: ToolRunResult;
+    try {
+      result =
+        toolMode || room
+          ? await proxiedResult({
+              agent,
+              claimed,
+              db,
+              deps,
+              proxy,
+              room,
+              signToken,
+            })
+          : {
+              events: [],
+              text: `Echo: ${input}${await memoryNotesOf(db, claimed, agent, library)}`,
+            };
+    } catch (error) {
+      await deps.completeRun(SYSTEM_PRINCIPAL, run.id, {
+        error: error instanceof Error ? error.message : String(error),
+        status: "failed",
+      });
+      return;
     }
     await finishWithText(deps, run, result.text, result.events);
   },
   kind: "fake",
+  offerNextOnEnd: true,
   resume: async (run, request, deps) => {
     if (request.kind !== "approval" || request.toolUseId !== toolUseIdOf(run)) {
       return;

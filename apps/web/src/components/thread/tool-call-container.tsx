@@ -101,8 +101,16 @@ export function ToolCallContainer({
   argsText,
   isError,
   result,
+  toolCallId,
   toolName,
 }: ToolCallMessagePartProps) {
+  // The task page shows one spinner: only the turn's latest tool call spins.
+  const spins = useAuiState(
+    (state) =>
+      state.message.status?.type === "running" &&
+      state.message.content.findLast((part) => part.type === "tool-call")
+        ?.toolCallId === toolCallId
+  );
   let input: unknown = null;
   if (nonEmpty(args)) {
     input = args;
@@ -110,8 +118,13 @@ export function ToolCallContainer({
     input = argsText;
   }
   const ok = result === undefined ? null : isError !== true;
+  const info = toolCardInfo({ input, name: toolName, ok, result });
   return (
-    <ToolCard info={toolCardInfo({ input, name: toolName, ok, result })} />
+    <ToolCard
+      info={
+        info.state === "running" && !spins ? { ...info, state: "done" } : info
+      }
+    />
   );
 }
 

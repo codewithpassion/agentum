@@ -1,7 +1,8 @@
 // The team diary goes into the team room at 08:00 in the workspace's timezone,
 // the first 08:00 after the team dream finished, never at dream time. A diary
 // more than 12 hours past its slot is dropped. A diary already in its team's
-// "Team diary" topic is not posted again.
+// "Team diary" topic is not posted again. When a team finished several dreams
+// before one slot, only the newest dream's diary is posted.
 import type { Database } from "@repo/db";
 import { dreamRuns } from "@repo/db/schema/dreams";
 import { inboxPosts, inboxThreads } from "@repo/db/schema/inbox";
@@ -93,14 +94,21 @@ const slotOf = (run: Candidate): number | null =>
 const isDue = (slot: number, nowMs: number): boolean =>
   slot <= nowMs && nowMs - slot < DUE_WINDOW_MS;
 
+/** The due runs, one per team and slot: the newest dream's diary stands for the morning. */
 const dueRuns = (
   candidates: readonly Candidate[],
   nowMs: number
-): Candidate[] =>
-  candidates.filter((run) => {
+): Candidate[] => {
+  const newest = new Map<string, Candidate>();
+  for (const run of candidates) {
     const slot = slotOf(run);
-    return slot !== null && isDue(slot, nowMs);
-  });
+    if (slot !== null && isDue(slot, nowMs)) {
+      // Candidates come oldest first, so a later run replaces an earlier one.
+      newest.set(`${run.teamId}\n${slot}`, run);
+    }
+  }
+  return [...newest.values()];
+};
 
 /** The runs whose diary is already in its team's diary topic: same text, posted after the dream finished. */
 const postedRunIds = async (
@@ -156,11 +164,8 @@ export const createTeamDiaryPoster = (deps: TeamDiaryPosterDeps) => {
     const due = dueRuns(await readCandidates(db, now), now.getTime());
     const done = await postedRunIds(db, due);
     const posted: string[] = [];
-    // The posted text is trimmed, as `postedRunIds` does; one team never gets the same text twice in a tick.
-    const sent = new Set<string>();
     for (const run of due) {
-      const key = `${run.teamId}\n${run.diary.trim()}`;
-      if (done.has(run.id) || sent.has(key)) {
+      if (done.has(run.id)) {
         continue;
       }
       try {
@@ -175,7 +180,6 @@ export const createTeamDiaryPoster = (deps: TeamDiaryPosterDeps) => {
           }
         );
         posted.push(run.id);
-        sent.add(key);
       } catch {
         // The diary stays due until its window closes, so the next tick tries again.
       }

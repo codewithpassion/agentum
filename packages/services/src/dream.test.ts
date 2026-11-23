@@ -112,6 +112,7 @@ test("every method refuses the system principal, except the tick's own", async (
   const refused = [
     service.list(system, "a1"),
     service.get(system, "d1"),
+    service.listTeam(system, "t1"),
     service.runNow(system, "a1"),
     Promise.resolve().then(() => service.runTeamNow(system, "t1")),
     service.undo(system, "d1"),

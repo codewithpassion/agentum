@@ -91,6 +91,7 @@ export const toQuestion = (row: QuestionRow): DreamQuestion => ({
 });
 
 export interface DreamAgent {
+  backupUserId: string | null;
   createdBy: string;
   id: string;
   name: string;
@@ -123,6 +124,7 @@ export const loadDreamAgent = async (
 ): Promise<DreamAgent> => {
   const [row] = await db
     .select({
+      backupUserId: agents.backupUserId,
       createdBy: agents.createdBy,
       id: agents.id,
       name: agents.name,
@@ -149,6 +151,7 @@ export const loadDreamAgent = async (
     throw notFound(`No agent "${agentId}"`);
   }
   return {
+    backupUserId: row.backupUserId,
     createdBy: row.createdBy,
     id: row.id,
     name: row.name,

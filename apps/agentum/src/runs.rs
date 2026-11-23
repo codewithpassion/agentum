@@ -16,7 +16,10 @@ use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -41,6 +44,9 @@ struct Host {
     user: Option<String>,
     state: Arc<Mutex<State>>,
     idle: Arc<Notify>,
+    /// Whether the installed Claude Code takes `--autocompact`. Set once in
+    /// `prerequisites`, so runs never read the version.
+    autocompact: Arc<AtomicBool>,
 }
 struct AgentHost {
     instance: String,
@@ -69,6 +75,7 @@ pub fn role(paths: &Paths, name: &str, config: &Config) -> Arc<dyn Role> {
             },
             state: Arc::new(Mutex::new(State::default())),
             idle: Arc::new(Notify::new()),
+            autocompact: Arc::new(AtomicBool::new(false)),
         },
         load_error,
         claude_version: Mutex::new("unknown".into()),
@@ -207,6 +214,10 @@ impl Role for AgentHost {
             self.host.user.as_deref(),
             &self.instance,
         )?;
+        self.host.autocompact.store(
+            crate::claude::supports_autocompact(&version),
+            Ordering::Relaxed,
+        );
         *self.claude_version.lock().unwrap() = version;
         Ok(())
     }

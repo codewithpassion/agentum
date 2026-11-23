@@ -326,6 +326,7 @@ fn host(url: &str, temp: &std::path::Path) -> Host {
         user: None,
         state: Arc::new(Mutex::new(State::default())),
         idle: Arc::new(Notify::new()),
+        autocompact: Arc::default(),
     }
 }
 async fn wait_calls(server: &Server, suffix: &str, count: usize) {
@@ -462,6 +463,24 @@ async fn replacement_cancels_claimed_runs_and_clears_queue() {
 }
 
 #[test]
+fn context_tokens_maps_the_three_budgets() {
+    for (budget, tokens) in [
+        ("small", 100_000),
+        ("standard", 200_000),
+        ("large", 500_000),
+    ] {
+        assert_eq!(
+            helpers::context_tokens(&json!({"contextBudget":budget})),
+            Some(tokens)
+        );
+    }
+    assert_eq!(
+        helpers::context_tokens(&json!({"contextBudget":"huge"})),
+        None
+    );
+    assert_eq!(helpers::context_tokens(&json!({})), None);
+}
+#[test]
 fn effort_accepts_only_the_three_levels() {
     for level in ["low", "medium", "high"] {
         assert_eq!(helpers::effort(&json!({"effort":level})), Some(level));
@@ -554,6 +573,10 @@ fn typescript_helper_parity() {
     assert!(crate::claude::version_ok("2.1.300 (Claude Code)"));
     assert!(!crate::claude::version_ok("2.1.299"));
     assert!(!crate::claude::version_ok("not a version"));
+    assert!(crate::claude::supports_autocompact("2.1.327 (Claude Code)"));
+    assert!(crate::claude::supports_autocompact("2.2.0"));
+    assert!(!crate::claude::supports_autocompact("2.1.326"));
+    assert!(!crate::claude::supports_autocompact("not a version"));
 }
 
 #[derive(Clone, Default)]

@@ -83,6 +83,8 @@ export interface ThreadMessage {
   role: "user" | "assistant";
   runId: string | null;
   status: ThreadStatus;
+  /** A message sent into a run that was already working. It is not the start of a task. */
+  steered?: true;
 }
 
 interface Cursor {
@@ -472,6 +474,26 @@ const isLateDelta = (
   ((current !== undefined && terminal(current.status)) ||
     cursor?.finished === frame.messageKey);
 
+/** Where a user message goes. Input goes before its run's assistant message. A steered one goes after it, behind any steered messages already placed there. */
+const userSlot = (
+  messages: ThreadMessage[],
+  index: number,
+  runId: string | null,
+  steered: boolean
+): number => {
+  if (index < 0) {
+    return messages.length;
+  }
+  if (!steered) {
+    return index;
+  }
+  let slot = index + 1;
+  while (messages[slot]?.steered && messages[slot]?.runId === runId) {
+    slot += 1;
+  }
+  return slot;
+};
+
 const userAttribution = (
   actor: ThreadActor,
   display: ThreadActorDisplay | undefined
@@ -512,8 +534,9 @@ export const applyFrame = (
   const next = [...messages];
   if (event?.type === "message.user") {
     const parts = userParts(event);
+    const steered = "payload" in event && event.payload.steered === true;
     // run.queued precedes message.user in storage; insert before its assistant shell.
-    next.splice(index < 0 ? next.length : index, 0, {
+    next.splice(userSlot(next, index, runId, steered), 0, {
       ...userAttribution(event.actor, frame.actorDisplay),
       createdAt: event.createdAt,
       id: event.id,
@@ -521,6 +544,7 @@ export const applyFrame = (
       role: "user",
       runId,
       status: "done",
+      ...(steered ? { steered: true as const } : {}),
     });
     return attach(next, state);
   }

@@ -9,14 +9,19 @@ import {
   cardStatusLine,
   chipsOf,
   collapsedKey,
+  filterCards,
   groupCards,
   NO_TEAM_KEY,
+  ROSTER_VIEW_KEY,
   readCollapsed,
+  readView,
   sortCards,
+  startsSearch,
   toggleKey,
   wallIsFlat,
   weekCostLabel,
   writeCollapsed,
+  writeView,
 } from "./roster-logic.ts";
 
 const card = (name: string, state: AgentCardState, id = name): AgentCard => ({
@@ -341,4 +346,54 @@ test("a card with no finish time shows its status line as it is", () => {
     DONE_CARD.statusLine
   );
   expect(cardStatusLine(card("Ada", "idle"), SYDNEY)).toBe("Idle");
+});
+
+test("filterCards matches a name fragment in any case and keeps all on an empty query", () => {
+  const cards = [card("Ada", "idle"), card("Bruce", "idle")];
+  expect(filterCards(cards, "").length).toBe(2);
+  expect(filterCards(cards, "  ").length).toBe(2);
+  expect(filterCards(cards, "RUC").map((c) => c.name)).toEqual(["Bruce"]);
+  expect(filterCards(cards, "zz")).toEqual([]);
+});
+
+test("readView falls back to the grid and writeView keeps the list choice", () => {
+  const data = new Map<string, string>();
+  const storage = () => ({
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      data.set(key, value);
+    },
+  });
+  expect(readView(storage)).toBe("grid");
+  writeView(storage, "list");
+  expect(data.get(ROSTER_VIEW_KEY)).toBe("list");
+  expect(readView(storage)).toBe("list");
+  data.set(ROSTER_VIEW_KEY, "nonsense");
+  expect(readView(storage)).toBe("grid");
+});
+
+test("blocked storage reads as the grid and a write does not throw", () => {
+  const blocked = () => {
+    throw new Error("blocked");
+  };
+  expect(readView(blocked)).toBe("grid");
+  expect(() => writeView(blocked, "list")).not.toThrow();
+});
+
+test("startsSearch accepts a plain printable key only", () => {
+  const key = (k: string, mods = {}) => ({
+    altKey: false,
+    ctrlKey: false,
+    key: k,
+    metaKey: false,
+    ...mods,
+  });
+  expect(startsSearch(key("a"))).toBe(true);
+  expect(startsSearch(key("A"))).toBe(true);
+  expect(startsSearch(key("a", { ctrlKey: true }))).toBe(false);
+  expect(startsSearch(key("a", { metaKey: true }))).toBe(false);
+  expect(startsSearch(key("a", { altKey: true }))).toBe(false);
+  expect(startsSearch(key(" "))).toBe(false);
+  expect(startsSearch(key("Enter"))).toBe(false);
+  expect(startsSearch(key("Escape"))).toBe(false);
 });

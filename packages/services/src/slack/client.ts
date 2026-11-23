@@ -76,10 +76,11 @@ export interface SlackClient {
     threadTs?: string;
     user: string;
   }) => Promise<SlackCallResult>;
-  /** Posts a message. `text` is the fallback and is escaped. `blocks` is sent as given, so the caller must escape any text inside it. */
+  /** Posts a message. `text` is the fallback and is escaped, unless `mrkdwn` says the caller already wrote it as mrkdwn with its own text escaped (`toSlackMrkdwn`). `blocks` is sent as given, so the caller must escape any text inside it. */
   postMessage: (request: {
     blocks?: unknown[];
     channel: string;
+    mrkdwn?: boolean;
     text: string;
     threadTs?: string;
   }) => Promise<SlackCallResult<{ ts: string }>>;
@@ -585,7 +586,9 @@ export const createSlackClient = (deps: {
           body: {
             blocks: request.blocks,
             channel: request.channel,
-            text: escapeSlackKeepingMentions(request.text),
+            text: request.mrkdwn
+              ? request.text
+              : escapeSlackKeepingMentions(request.text),
             thread_ts: request.threadTs,
             unfurl_links: false,
             unfurl_media: false,

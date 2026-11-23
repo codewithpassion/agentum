@@ -74,11 +74,15 @@ function ComposerAttachment() {
 /**
  * The message box under the thread. Send is Ctrl or Cmd+Enter, and files come
  * from the disk or the library. `disabledNote` turns the box off and says why.
+ * `busyNote` is for a box used while a task works: it says when the agent gets
+ * the message, in place of "Sending starts task N".
  */
 export function ComposerContainer({
+  busyNote,
   disabledNote,
   nextRun,
 }: {
+  busyNote?: string;
   nextRun?: number;
   disabledNote: string | null;
 }) {
@@ -178,9 +182,11 @@ export function ComposerContainer({
     >
       <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
         <span className="font-medium">Reply</span>
-        <span className="text-muted-foreground">
-          Sending starts task {nextRun ?? 2} in this conversation
-        </span>
+        {busyNote === undefined ? (
+          <span className="text-muted-foreground">
+            Sending starts task {nextRun ?? 2} in this conversation
+          </span>
+        ) : null}
       </div>
       <div className="relative">
         <ComposerPrimitive.Input
@@ -206,6 +212,15 @@ export function ComposerContainer({
       {disabledNote === null ? null : (
         <p className="text-muted-foreground text-sm" role="status">
           {disabledNote}
+        </p>
+      )}
+      {busyNote === undefined ? null : (
+        <p
+          className="text-muted-foreground text-xs"
+          data-testid="busy-note"
+          role="status"
+        >
+          {busyNote}
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">

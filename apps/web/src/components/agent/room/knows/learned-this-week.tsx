@@ -8,6 +8,7 @@ function LearnedRow({
   busy,
   canChange,
   change,
+  clamp = false,
   disabled,
   nowMs,
   onUndo,
@@ -15,19 +16,24 @@ function LearnedRow({
   busy: boolean;
   canChange: boolean;
   change: MemoryChange;
+  clamp?: boolean;
   disabled: boolean;
   nowMs: number;
   onUndo: (changeId: string) => void;
 }) {
   const undo = useCallback(() => onUndo(change.id), [change.id, onUndo]);
   const showUndo = canChange || change.userScope !== null;
+  const sentence = changeSentence(change);
   return (
     <li
       className="flex flex-wrap items-center justify-between gap-2 py-2"
       data-testid="learned-row"
     >
-      <span>
-        {changeSentence(change)},{" "}
+      <span
+        className={clamp ? "line-clamp-3 min-w-0" : undefined}
+        title={clamp ? sentence : undefined}
+      >
+        {sentence},{" "}
         <span className="text-muted-foreground">
           {changeWhen(change.createdAt, nowMs)}
         </span>
@@ -51,6 +57,7 @@ export function LearnedList({
   busyId,
   canChange,
   changes,
+  clamp = false,
   disabled,
   nowMs,
   onUndo,
@@ -58,6 +65,8 @@ export function LearnedList({
   busyId: string | null;
   canChange: boolean;
   changes: readonly MemoryChange[];
+  /** Clamp each sentence to three lines, with the full text in its title. */
+  clamp?: boolean;
   disabled: boolean;
   nowMs: number;
   onUndo: (changeId: string) => void;
@@ -76,6 +85,7 @@ export function LearnedList({
             busy={busyId === change.id}
             canChange={canChange}
             change={change}
+            clamp={clamp}
             disabled={disabled}
             key={change.id}
             nowMs={nowMs}

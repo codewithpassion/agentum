@@ -51,4 +51,5 @@ export const createMachineRuntime = ({
     }
   },
   kind: "machine",
+  offerNextOnEnd: true,
 });

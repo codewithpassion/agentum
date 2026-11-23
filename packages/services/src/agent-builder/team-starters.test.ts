@@ -177,10 +177,9 @@ for (const key of ["sales", "back_office"] as const) {
 
 test("unresolved runtime and stale choices reject before writing", async () => {
   const { draft } = await builder.teamFromStarter(user, "sales");
+  draft.members[0].runsOn = null;
   await expect(builder.createTeam(user, { draft })).rejects.toThrow();
-  for (const member of draft.members) {
-    member.runsOn = { runtime: "cloud" };
-  }
+  draft.members[0].runsOn = { runtime: "cloud" };
   draft.members[3].tools = ["missing"];
   await expect(builder.createTeam(user, { draft })).rejects.toThrow();
   expectEmpty();
@@ -251,6 +250,50 @@ test("two members with the same name are a conflict", async () => {
   await expect(builder.createTeam(user, { draft })).rejects.toMatchObject({
     code: "conflict",
   });
+  expectEmpty();
+});
+
+for (const key of ["sales", "back_office"] as const) {
+  test(`${key}: every member gets the default runtime and the draft creates as it is`, async () => {
+    const review = await builder.teamFromStarter(user, key);
+    expect(review.draft.members.map((member) => member.runsOn)).toEqual(
+      Array.from({ length: 4 }, () => ({ runtime: "cloud" }))
+    );
+    expect(review.members.flatMap((member) => member.gaps)).toEqual([]);
+    const team = await builder.createTeam(user, { draft: review.draft });
+    expect(team.members).toHaveLength(4);
+    expect(
+      db
+        .select()
+        .from(agents)
+        .all()
+        .map((row) => row.runtime)
+    ).toEqual(Array.from({ length: 4 }, () => "cloud"));
+  });
+}
+
+test("with no provider key the starter members have no runtime and cannot be created", async () => {
+  const atomic = sqliteAtomic(db);
+  const none = createTeamStarterLifecycle({
+    atomic,
+    catalog: async () => ({ ...catalog, runtimes: [] }),
+    clock: {
+      now: () => new Date("2026-11-20T00:00:00Z"),
+      sleep: async () => undefined,
+    },
+    db,
+    teams: {
+      get: () => Promise.reject(new Error("unused")),
+    },
+  });
+  const review = await none.teamFromStarter(user, "sales");
+  expect(review.draft.members.every((member) => member.runsOn === null)).toBe(
+    true
+  );
+  expect(review.members.every((member) => member.gaps.length > 0)).toBe(true);
+  await expect(
+    none.createTeam(user, { draft: review.draft })
+  ).rejects.toThrow();
   expectEmpty();
 });
 

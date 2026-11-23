@@ -296,6 +296,12 @@ test("Dream now and the schedule radios are disabled while a schedule change is 
   expect(radiosOf(document).every((radio) => radio.disabled)).toBe(true);
 });
 
+test("without a schedule or onSchedule there is no picker, and Dream now still shows", () => {
+  const document = render({ onSchedule: undefined, schedule: undefined });
+  expect(radiosOf(document)).toHaveLength(0);
+  expect(buttonNamed(document, "Dream now")?.disabled).toBe(false);
+});
+
 test("clicking Dream now calls onRunNow", async () => {
   let calls = 0;
   const { container, unmount } = await mount(

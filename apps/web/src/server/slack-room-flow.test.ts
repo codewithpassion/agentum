@@ -34,6 +34,8 @@ import { Hono } from "hono";
 import { type Composed, composeWith } from "./compose.ts";
 import type { AppEnv } from "./routes/groups.ts";
 import { slackRoutes } from "./routes/slack.ts";
+import { tickJobs } from "./tick/jobs.ts";
+import { runTick } from "./tick/registry.ts";
 
 const ORG = "org_a";
 const SECRETS_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(5)));
@@ -61,8 +63,10 @@ const ADA = appOf("ada", "Ada");
 const CY = appOf("cy", "Cy");
 const DI = appOf("di", "Di");
 
+/** Milliseconds the test has moved the clock on, so a sweep sees old posts. */
+let skewMs = 0;
 const clock: Clock = {
-  now: () => new Date(),
+  now: () => new Date(Date.now() + skewMs),
   sleep: () => Promise.resolve(),
 };
 
@@ -158,6 +162,7 @@ const slackPostsBy = (app: FakeSlackApp) =>
 beforeEach(async () => {
   db = migrated([ORG]);
   deferred = [];
+  skewMs = 0;
   directoryKnowsDom = false;
   agentIds.clear();
   fake = createFakeSlack({
@@ -415,7 +420,8 @@ test("a reply in the Slack thread joins the topic, a guest posts as a named gues
   expect(guestPost).toMatchObject({
     authorId: `slack:${SLACK_TEAM}:${GUEST_SLACK}`,
     authorKind: "user",
-    text: `${GUEST_NAME} (Slack guest): Can I join the launch?`,
+    guestName: GUEST_NAME,
+    text: "Can I join the launch?",
   });
   // Dom's reply woke the lead once more. The guest's post woke nobody.
   expect(runs().length).toBe(runsAfterKickoff + 1);
@@ -779,4 +785,87 @@ test("a linked channel hears a member app: the same event records one post and w
   expect(
     runs().filter((run) => run.agentId === agentIds.get("Ada"))
   ).toHaveLength(1);
+});
+
+const THREE_MINUTES_MS = 3 * 60_000;
+
+/** One minute tick, three minutes after the last post, then whatever it defers. */
+const tick = async (): Promise<void> => {
+  skewMs += THREE_MINUTES_MS;
+  await runTick(tickJobs, { clock, services: composed.services });
+  await settle();
+};
+
+test("the minute tick wakes the lead for a Slack post whose deferred wake was lost, once", async () => {
+  await link();
+  fake.say({
+    channel: CHANNEL,
+    text: "Kickoff: plan the launch",
+    user: DOM_SLACK,
+  });
+  await fake.settled();
+  // The Worker dies before the after-answer job runs: the post is in, nothing woke.
+  deferred.splice(0);
+  expect(posts()).toHaveLength(1);
+  expect(runs()).toHaveLength(0);
+
+  await tick();
+
+  const ada = agentIds.get("Ada");
+  expect(runs().filter((run) => run.agentId === ada)).toHaveLength(1);
+  expect(slackPostsBy(ADA)).toHaveLength(1);
+
+  // A second tick finds the post answered and does nothing more.
+  await tick();
+  expect(runs()).toHaveLength(1);
+  expect(slackPostsBy(ADA)).toHaveLength(1);
+  expect(posts().filter((post) => post.authorKind === "agent")).toHaveLength(1);
+});
+
+test("the minute tick sends a room post whose deferred send was lost, once", async () => {
+  await link();
+  const first = fake.say({
+    channel: CHANNEL,
+    text: "Kickoff: plan the launch",
+    user: DOM_SLACK,
+  });
+  await settle();
+  const [topic] = topics();
+  if (!topic) {
+    throw new Error("no topic");
+  }
+  const before = fake.messages.length;
+  // The post is written, but the Worker died before its send ran.
+  await db.insert(inboxPosts).values({
+    authorId: DOM,
+    authorKind: "user",
+    createdAt: new Date(Date.now() + 1).toISOString(),
+    id: "post_lost_send",
+    text: "Please send the draft.",
+    threadId: topic.id,
+    workspaceId,
+  });
+  // A tick inside the two-minute grace leaves a post that may still be in flight alone.
+  await runTick(tickJobs, { clock, services: composed.services });
+  expect(fake.messages.slice(before)).toHaveLength(0);
+  await tick();
+
+  const sent = fake.messages.slice(before);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({
+    appId: ADA.appId,
+    channel: CHANNEL,
+    text: "*Dom Fretz:* Please send the draft.",
+    threadTs: first.ts,
+  });
+  expect(
+    db
+      .select()
+      .from(slackRoomMessages)
+      .where(eq(slackRoomMessages.postId, "post_lost_send"))
+      .all()
+  ).toMatchObject([{ direction: "out" }]);
+
+  await tick();
+  expect(fake.messages.slice(before)).toHaveLength(1);
 });

@@ -220,6 +220,8 @@ export interface CardFacts {
   problem?: "bounced" | "failed" | "interrupted" | null;
   /** The name of the lead who proposes a change to the card's agent, set only on a `team_propose_change` approval. */
   proposedBy?: string | null;
+  /** Set on a team's `dream_question`: the team's name. */
+  teamName?: string;
   /** The existing desk title; kept for every kind except approvals. */
   title: string;
   toolKey: string | null;
@@ -275,7 +277,7 @@ export const plainTitle = (card: CardFacts): string => {
     return NEEDS_YOU_HEADINGS.memory_note(card.agentName);
   }
   if (card.kind === "dream_question") {
-    return NEEDS_YOU_HEADINGS.dream_question(card.agentName);
+    return NEEDS_YOU_HEADINGS.dream_question(card.agentName, card.teamName);
   }
   if (card.kind === "dream_held") {
     return NEEDS_YOU_HEADINGS.dream_held(card.agentName);

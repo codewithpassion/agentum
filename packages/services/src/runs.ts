@@ -413,10 +413,10 @@ export interface RunsServiceOptions {
     Partial<Pick<LibraryService, "read">>;
   people?: PeopleLookup;
   /**
-   * Where the app's connector proxy is, for the fake runtime's tool mode: the
+   * Where the app is, for the fake runtime's tool mode (`/api/proxy`) and lead mode (`/mcp`): the
    * deployment's origin and a fetch that reaches it (a Worker cannot fetch its
    * own hostname). Only read when `devFakeRuntime` is true. Without it, a fake
-   * run that asks for a tool fails.
+   * run that asks for a tool, or a lead run that uses a team tool, fails.
    */
   proxy?: ProxyAccess;
   /**
@@ -472,6 +472,13 @@ const requireArtifactSessionMatch = (
     throw new ServiceError("not_found", "Session not found");
   }
 };
+
+/** What `sendWhileWorking` did: `steered` into the working run, or `queued` as a new run. */
+interface SendResult {
+  kind: "queued" | "steered";
+  runId: string;
+  sessionId: string;
+}
 
 interface StartResult {
   runId: string;
@@ -2581,6 +2588,81 @@ export const createRunsService = ({
     );
   };
 
+  /**
+   * A message a person sends while a run of the session works. A `running`
+   * run on a runtime that can steer takes it into the work in progress, and it
+   * is shown as a `message.user` event of that run. Steering is skipped for a
+   * message with files and for a subagent or dry run, and a runtime that
+   * refuses (or has no steer) leaves the message to be queued. Every other
+   * message starts the session's next run, which waits for its turn.
+   */
+  const sendWhileWorking = async (
+    principal: Principal,
+    raw: {
+      input: { fileIds?: string[]; text: string };
+      requestId?: string;
+      runId: string;
+    }
+  ): Promise<SendResult> => {
+    if (principal.kind !== "user") {
+      throw new ForbiddenError(START_ACTION);
+    }
+    const working = await requireRun(principal, raw.runId);
+    await requireVisibleSession(principal, working);
+    const session = await findSessionById(db, {
+      agentId: working.agentId,
+      id: working.sessionId,
+      workspaceId: working.workspaceId,
+    });
+    if (!session) {
+      throw new ServiceError("not_found", "Session not found");
+    }
+    // The sessions a person replies in from the thread: one the UI started, or a hand-off's sub-thread.
+    if (
+      session.origin === "artifact" ||
+      (session.origin !== "ui" && session.parentSessionId === null)
+    ) {
+      throw new ServiceError("invalid", "This thread takes no replies here");
+    }
+    const input = startRunInputSchema.parse({
+      agentId: working.agentId,
+      input: raw.input,
+      requestId: raw.requestId,
+      session: { origin: session.origin },
+    });
+    const options = { sessionId: session.id };
+    refuseReservedRequestId(input, {});
+    const prepared = await prepareStart(principal, input, options);
+    const canSteer =
+      working.status === "running" &&
+      working.subagentLevel === 0 &&
+      !working.dryRun &&
+      prepared.fileIds.length === 0;
+    if (canSteer) {
+      const steered = await prepared.adapter.steer?.(working, {
+        operationId: `steer-${raw.requestId ?? ulid()}`,
+        text: input.input.text,
+      });
+      if (steered) {
+        // After the steer, so a refused one leaves no message beside the queued run.
+        await appendRunEvent(working, "message.user", prepared.subject.actor, {
+          fileIds: [],
+          steered: true,
+          text: input.input.text,
+        });
+        return {
+          kind: "steered",
+          runId: working.id,
+          sessionId: working.sessionId,
+        };
+      }
+    }
+    return {
+      kind: "queued",
+      ...(await finishStart(prepared, input, options)),
+    };
+  };
+
   /** Only same-agent subagent edges confer ownership; a hand-off ends the chain. */
   const reachesSubagentParent = async (
     target: RunRecord,
@@ -3620,6 +3702,7 @@ export const createRunsService = ({
     releaseRun,
     replyInSubThread,
     resumeRequest,
+    sendWhileWorking,
     settleParkedRun,
     startForGuest,
     startRun,

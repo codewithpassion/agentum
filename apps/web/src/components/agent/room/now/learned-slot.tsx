@@ -1,12 +1,16 @@
 import { useAuth } from "@clerk/tanstack-react-start";
 import type { MemoryChange } from "@repo/db/shared";
+import { useCallback, useState } from "react";
+import { Button } from "#/components/ui/button";
 import { learnedThisWeek } from "../knows/learned-logic.ts";
 import { LearnedList } from "../knows/learned-this-week.tsx";
 import { canChangeRules } from "../knows/rules-logic.ts";
 import { useMemory } from "../knows/use-memory.ts";
 import type { RoomData } from "../room-data.ts";
 
-/** The card around the Knows tab's list of what the agent learned this week. Nothing renders for an empty list. */
+const COLLAPSED_COUNT = 3;
+
+/** The card around the Knows tab's list of what the agent learned this week. Shows the newest three until expanded. Nothing renders for an empty list. */
 export function LearnedCard({
   busyId,
   canChange,
@@ -23,9 +27,14 @@ export function LearnedCard({
   nowMs: number;
   onUndo: (changeId: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const toggle = useCallback(() => setExpanded((value) => !value), []);
   if (changes.length === 0) {
     return null;
   }
+  const isLong = changes.length > COLLAPSED_COUNT;
+  const shown =
+    expanded || !isLong ? changes : changes.slice(0, COLLAPSED_COUNT);
   return (
     <section
       aria-label="Learned this week"
@@ -37,11 +46,23 @@ export function LearnedCard({
         <LearnedList
           busyId={busyId}
           canChange={canChange}
-          changes={changes}
+          changes={shown}
+          clamp={true}
           disabled={disabled}
           nowMs={nowMs}
           onUndo={onUndo}
         />
+        {isLong ? (
+          <Button
+            aria-expanded={expanded}
+            onClick={toggle}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            {expanded ? "Show less" : `Show all (${changes.length})`}
+          </Button>
+        ) : null}
       </div>
     </section>
   );
