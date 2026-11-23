@@ -3,7 +3,7 @@ id: FX.5
 title: "The guest execution test survives a loaded machine"
 milestone: FX
 size: S
-status: in_progress
+status: done
 depends_on: [FX.4]
 branch: null
 lane: e2e-scripts
@@ -29,3 +29,4 @@ FX.4's dispatcher saw `guest-execution.test.ts` (apps/web) fail twice in full `b
 - 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
 - 2026-11-23: back in scope on Dom's call. Controller amended the Check: re-enable the FX.7-skipped tests, no load generation.
 - 2026-11-23: dispatched.
+- 2026-11-23: merged at 0de4deb1, review clean after 0 fix rounds. Test re-enabled.
