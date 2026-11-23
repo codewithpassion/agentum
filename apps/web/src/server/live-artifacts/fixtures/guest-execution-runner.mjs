@@ -84,8 +84,15 @@ try {
     )
     .bind(now)
     .run();
+  // One connection per request. After a slow request (a durable-object alarm
+  // replay takes 5 to 8 s on a loaded host) workerd resets the pooled
+  // keep-alive socket just as the next request is written to it, which fails
+  // with ECONNRESET. A fresh socket has no such window.
   const open = (path, init = {}) =>
-    runtime.dispatchFetch(`http://localhost${path}`, init);
+    runtime.dispatchFetch(`http://localhost${path}`, {
+      ...init,
+      headers: { ...init.headers, Connection: "close" },
+    });
   // Read every body to its end. undici cancels the body of a Response nobody
   // read once it is garbage collected, and that destroys the pooled socket,
   // which by then may carry the next request ("other side closed").
